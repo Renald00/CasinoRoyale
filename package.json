@@ -1,7 +1,7 @@
 {
-  "name": "roblox-clone",
+  "name": "card-games",
   "version": "1.0.0",
-  "description": "A Roblox-inspired 3D multiplayer game",
+  "description": "Multiplayer card games - Blackjack, Poker, War, and Solitaire",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

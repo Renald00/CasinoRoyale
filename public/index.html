@@ -3,159 +3,243 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BlockVerse - A Roblox-Inspired Game</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <title>Card Games - Blackjack, Poker, War & Solitaire</title>
   <script src="/socket.io/socket.io.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Login/Avatar Screen -->
-  <div id="loginScreen" class="screen active">
-    <div class="login-container">
+  <!-- Main Menu -->
+  <div id="mainMenu" class="screen active">
+    <div class="menu-container">
       <div class="logo">
-        <div class="logo-block"></div>
-        <h1>BlockVerse</h1>
+        <div class="card-logo">♠♥♦♣</div>
+        <h1>Card Games</h1>
+        <p class="subtitle">Multiplayer Casino Games</p>
       </div>
-      <div class="avatar-creator">
-        <h2>Create Your Avatar</h2>
-        <div class="avatar-preview">
-          <canvas id="avatarCanvas" width="200" height="200"></canvas>
+      
+      <div class="name-input">
+        <label>Your Name</label>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="15">
+      </div>
+      
+      <div class="games-grid">
+        <div class="game-card" data-game="blackjack">
+          <div class="game-icon">🃏</div>
+          <h3>Blackjack</h3>
+          <p>Beat the dealer to 21!</p>
+          <span class="player-count">2-6 Players</span>
         </div>
-        <div class="avatar-options">
-          <div class="option-group">
-            <label>Username</label>
-            <input type="text" id="username" placeholder="Enter username" maxlength="15">
-          </div>
-          <div class="option-group">
-            <label>Character Color</label>
-            <div class="color-picker">
-              <div class="color-option selected" data-color="#4a90d9" style="background:#4a90d9"></div>
-              <div class="color-option" data-color="#e74c3c" style="background:#e74c3c"></div>
-              <div class="color-option" data-color="#2ecc71" style="background:#2ecc71"></div>
-              <div class="color-option" data-color="#f39c12" style="background:#f39c12"></div>
-              <div class="color-option" data-color="#9b59b6" style="background:#9b59b6"></div>
-              <div class="color-option" data-color="#1abc9c" style="background:#1abc9c"></div>
-              <div class="color-option" data-color="#e67e22" style="background:#e67e22"></div>
-              <div class="color-option" data-color="#ecf0f1" style="background:#ecf0f1"></div>
-            </div>
-          </div>
-          <div class="option-group">
-            <label>Hat</label>
-            <div class="hat-picker">
-              <div class="hat-option selected" data-hat="none">None</div>
-              <div class="hat-option" data-hat="crown">Crown</div>
-              <div class="hat-option" data-hat="cap">Cap</div>
-              <div class="hat-option" data-hat="tophat">Top Hat</div>
-            </div>
-          </div>
-          <button id="playBtn" class="play-btn">PLAY</button>
+        
+        <div class="game-card" data-game="poker">
+          <div class="game-icon">♠</div>
+          <h3>Poker</h3>
+          <p>5-Card Draw</p>
+          <span class="player-count">2-6 Players</span>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Lobby/Game Selection Screen -->
-  <div id="lobbyScreen" class="screen">
-    <div class="lobby-header">
-      <div class="lobby-logo">
-        <div class="logo-block small"></div>
-        <h1>BlockVerse</h1>
-      </div>
-      <div class="lobby-user">
-        <span id="lobbyUsername"></span>
-        <div class="user-avatar" id="lobbyAvatar"></div>
-      </div>
-    </div>
-    <div class="games-grid">
-      <div class="game-card" data-game="obby-1">
-        <div class="game-preview obby-preview"></div>
-        <div class="game-info">
-          <h3>Obby Challenge</h3>
-          <p>Test your parkour skills!</p>
-          <span class="player-count" id="obby-players">0 Playing</span>
+        
+        <div class="game-card" data-game="war">
+          <div class="game-icon">⚔️</div>
+          <h3>War</h3>
+          <p>Higher card wins!</p>
+          <span class="player-count">2 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="solitaire">
+          <div class="game-icon">🎴</div>
+          <h3>Solitaire</h3>
+          <p>Classic Klondike</p>
+          <span class="player-count">1 Player</span>
         </div>
       </div>
-      <div class="game-card" data-game="build-1">
-        <div class="game-preview build-preview"></div>
-        <div class="game-info">
-          <h3>Free Build</h3>
-          <p>Create anything you imagine!</p>
-          <span class="player-count" id="build-players">0 Playing</span>
-        </div>
-      </div>
-      <div class="game-card" data-game="racing-1">
-        <div class="game-preview racing-preview"></div>
-        <div class="game-info">
-          <h3>Speed Race</h3>
-          <p>Race to the finish line!</p>
-          <span class="player-count" id="racing-players">0 Playing</span>
-        </div>
-      </div>
-      <div class="game-card" data-game="survival-1">
-        <div class="game-preview survival-preview"></div>
-        <div class="game-info">
-          <h3>Survival Island</h3>
-          <p>Explore and survive!</p>
-          <span class="player-count" id="survival-players">0 Playing</span>
+      
+      <div class="room-actions">
+        <button id="createRoomBtn" class="btn btn-primary">Create Room</button>
+        <div class="join-section">
+          <input type="text" id="roomCode" placeholder="Room Code" maxlength="6">
+          <button id="joinRoomBtn" class="btn btn-secondary">Join</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Game Screen -->
-  <div id="gameScreen" class="screen">
-    <div id="gameUI">
+  <!-- Lobby -->
+  <div id="lobby" class="screen">
+    <div class="lobby-container">
+      <div class="lobby-header">
+        <button id="backBtn" class="btn btn-back">← Back</button>
+        <h2>Game Lobby</h2>
+        <div class="room-code">Room: <span id="displayRoomCode"></span></div>
+      </div>
+      
+      <div class="players-list">
+        <h3>Players</h3>
+        <div id="lobbyPlayers"></div>
+      </div>
+      
+      <div class="lobby-actions">
+        <button id="startGameBtn" class="btn btn-primary" style="display:none">Start Game</button>
+        <p id="waitingMsg" class="waiting-msg">Waiting for host to start...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Blackjack Game -->
+  <div id="blackjackGame" class="screen">
+    <div class="game-container">
       <div class="game-header">
-        <button id="backToLobby" class="back-btn">← Lobby</button>
-        <div class="game-title" id="currentGameTitle">Obby Challenge</div>
-        <div class="player-count-header">
-          <span id="onlineCount">0</span> Online
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Blackjack</h2>
+        <div class="pot-display">Pot: $<span id="bjPot">0</span></div>
+      </div>
+      
+      <div class="blackjack-table">
+        <div class="dealer-section">
+          <h3>Dealer</h3>
+          <div id="dealerHand" class="hand"></div>
+          <div id="dealerValue" class="hand-value"></div>
+        </div>
+        
+        <div class="players-section">
+          <div id="bjPlayers"></div>
+        </div>
+        
+        <div id="bjPlayerHand" class="player-hand-section">
+          <h3>Your Hand</h3>
+          <div id="playerHand" class="hand"></div>
+          <div id="playerValue" class="hand-value"></div>
         </div>
       </div>
-      <div class="hotbar">
-        <div class="hotbar-slot selected" data-slot="0">
-          <div class="slot-icon" style="background:#8B4513"></div>
-          <span>1</span>
-        </div>
-        <div class="hotbar-slot" data-slot="1">
-          <div class="slot-icon" style="background:#808080"></div>
-          <span>2</span>
-        </div>
-        <div class="hotbar-slot" data-slot="2">
-          <div class="slot-icon" style="background:#228B22"></div>
-          <span>3</span>
-        </div>
-        <div class="hotbar-slot" data-slot="3">
-          <div class="slot-icon" style="background:#DC143C"></div>
-          <span>4</span>
-        </div>
-        <div class="hotbar-slot" data-slot="4">
-          <div class="slot-icon" style="background:#FFD700"></div>
-          <span>5</span>
-        </div>
-        <div class="hotbar-slot" data-slot="5">
-          <div class="slot-icon" style="background:#4169E1"></div>
-          <span>6</span>
-        </div>
-        <div class="hotbar-slot" data-slot="6">
-          <div class="slot-icon" style="background:#FF69B4"></div>
-          <span>7</span>
-        </div>
-        <div class="hotbar-slot" data-slot="7">
-          <div class="slot-icon" style="background:#87CEEB"></div>
-          <span>8</span>
-        </div>
+      
+      <div id="bjActions" class="game-actions">
+        <button id="hitBtn" class="btn btn-action">Hit</button>
+        <button id="standBtn" class="btn btn-action">Stand</button>
       </div>
-      <div class="chat-container">
-        <div id="chatMessages" class="chat-messages"></div>
-        <input type="text" id="chatInput" placeholder="Press Enter to chat..." maxlength="100">
-      </div>
-      <div class="crosshair">+</div>
-      <div class="score-display">
-        <span>Score: </span><span id="scoreValue">0</span>
+      
+      <div id="bjResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="bjResultText"></h2>
+          <button id="bjNewRound" class="btn btn-primary">New Round</button>
+        </div>
       </div>
     </div>
-    <canvas id="gameCanvas"></canvas>
+  </div>
+
+  <!-- Poker Game -->
+  <div id="pokerGame" class="screen">
+    <div class="game-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Poker - 5 Card Draw</h2>
+        <div class="pot-display">Pot: $<span id="pokerPot">0</span></div>
+      </div>
+      
+      <div class="poker-table">
+        <div class="opponents-section">
+          <div id="pokerOpponents"></div>
+        </div>
+        
+        <div class="community-section">
+          <div id="pokerCommunity" class="hand"></div>
+        </div>
+        
+        <div id="pokerPlayerHand" class="player-hand-section">
+          <h3>Your Hand</h3>
+          <div id="pokerHand" class="hand poker-hand"></div>
+          <div id="pokerHandRank" class="hand-rank"></div>
+        </div>
+      </div>
+      
+      <div id="pokerActions" class="game-actions">
+        <button id="pokerBetBtn" class="btn btn-action">Bet $50</button>
+        <button id="pokerFoldBtn" class="btn btn-action btn-danger">Fold</button>
+        <button id="pokerDrawBtn" class="btn btn-action" style="display:none">Draw Cards</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- War Game -->
+  <div id="warGame" class="screen">
+    <div class="game-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>War</h2>
+        <div class="scores-display">
+          You: <span id="warScore1">0</span> - <span id="warScore2">0</span> :Opponent
+        </div>
+      </div>
+      
+      <div class="war-table">
+        <div class="war-opponent">
+          <h3 id="warOpponentName">Opponent</h3>
+          <div class="card-pile">
+            <div id="opponentPile" class="pile-count">26</div>
+          </div>
+          <div id="opponentCard" class="war-card-slot"></div>
+        </div>
+        
+        <div class="war-center">
+          <div class="vs-text">VS</div>
+        </div>
+        
+        <div class="war-player">
+          <div id="playerCard" class="war-card-slot"></div>
+          <div class="card-pile">
+            <div id="playerPile" class="pile-count">26</div>
+          </div>
+          <h3>You</h3>
+        </div>
+      </div>
+      
+      <div id="warActions" class="game-actions">
+        <button id="warPlayBtn" class="btn btn-action btn-large">Play Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Solitaire Game -->
+  <div id="solitaireGame" class="screen">
+    <div class="game-container solitaire-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Solitaire</h2>
+        <div class="solitaire-stats">
+          <span>Moves: <span id="solMoves">0</span></span>
+          <span>Time: <span id="solTime">0:00</span></span>
+        </div>
+        <button id="newGameBtn" class="btn btn-small">New Game</button>
+      </div>
+      
+      <div class="solitaire-board">
+        <div class="top-row">
+          <div id="stock" class="card-pile sol-pile" data-pile="stock"></div>
+          <div id="waste" class="card-pile sol-pile" data-pile="waste"></div>
+          <div class="spacer"></div>
+          <div id="foundation-0" class="card-pile sol-pile foundation" data-pile="foundation-0"></div>
+          <div id="foundation-1" class="card-pile sol-pile foundation" data-pile="foundation-1"></div>
+          <div id="foundation-2" class="card-pile sol-pile foundation" data-pile="foundation-2"></div>
+          <div id="foundation-3" class="card-pile sol-pile foundation" data-pile="foundation-3"></div>
+        </div>
+        
+        <div class="tableau-row">
+          <div id="tableau-0" class="tableau-pile" data-pile="tableau-0"></div>
+          <div id="tableau-1" class="tableau-pile" data-pile="tableau-1"></div>
+          <div id="tableau-2" class="tableau-pile" data-pile="tableau-2"></div>
+          <div id="tableau-3" class="tableau-pile" data-pile="tableau-3"></div>
+          <div id="tableau-4" class="tableau-pile" data-pile="tableau-4"></div>
+          <div id="tableau-5" class="tableau-pile" data-pile="tableau-5"></div>
+          <div id="tableau-6" class="tableau-pile" data-pile="tableau-6"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Win Overlay -->
+  <div id="winOverlay" class="overlay" style="display:none">
+    <div class="overlay-content">
+      <h2>🎉 You Win! 🎉</h2>
+      <p id="winMessage"></p>
+      <button id="playAgainBtn" class="btn btn-primary">Play Again</button>
+    </div>
   </div>
 
   <script src="game.js"></script>

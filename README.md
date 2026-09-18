@@ -1,30 +1,36 @@
-# BlockVerse - A Roblox-Inspired 3D Multiplayer Game
+# Card Games
 
-A browser-based 3D multiplayer game inspired by Roblox, built with Three.js and Socket.io.
+A multiplayer card games application featuring classic casino games.
 
-## Features
+## Games Included
 
-- **3D World**: Fully rendered 3D environment with Three.js
-- **Multiplayer**: Real-time multiplayer with Socket.io
-- **4 Game Modes**:
-  - Obby Challenge - Parkour obstacle course
-  - Free Build - Creative building mode
-  - Speed Race - Racing track
-  - Survival Island - Exploration mode
-- **Block System**: Place and destroy blocks (8 types)
-- **Character Customization**: Choose colors and hats
-- **Chat System**: In-game chat with other players
-- **Physics**: Gravity, jumping, and collision detection
+### Blackjack
+- Classic card game against the dealer
+- Hit, Stand, and try to beat the dealer to 21
+- Supports 2-6 players
+
+### Poker (5-Card Draw)
+- Classic poker with betting and card drawing
+- Bet, fold, or draw new cards
+- Hand rankings from High Card to Royal Flush
+
+### War
+- Simple card comparison game
+- Higher card wins the round
+- Best of all rounds wins
+
+### Solitaire
+- Classic Klondike solitaire
+- Single-player card game
+- Drag cards to build foundations
 
 ## Controls
 
-- **WASD / Arrow Keys**: Move
-- **Mouse**: Look around (click to lock cursor)
-- **Space**: Jump
-- **Left Click**: Remove block
-- **Right Click**: Place block
-- **1-8**: Select block type
-- **Enter**: Open chat
+- **Click** cards to select/deselect
+- **Hit/Stand** buttons for Blackjack
+- **Bet/Fold/Draw** buttons for Poker
+- **Play Card** button for War
+- **Click** to move cards in Solitaire
 
 ## Setup
 
@@ -34,3 +40,11 @@ npm start
 ```
 
 Server runs on http://localhost:3000
+
+## How to Play
+
+1. Enter your name
+2. Select a game
+3. Create a room or join with a code
+4. Wait for players (or play Soloitaire alone)
+5. Start the game and enjoy!

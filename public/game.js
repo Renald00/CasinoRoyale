@@ -1,725 +1,695 @@
-// Game State
+// Socket connection
 const socket = io();
-let currentUser = null;
+
+// Game state
 let currentGame = null;
-let scene, camera, renderer, player;
-let otherPlayers = {};
-let blocks = [];
-let blockMeshes = {};
-let selectedSlot = 0;
-let isPlaying = false;
-let canJump = true;
-let velocity = { x: 0, y: 0, z: 0 };
-let moveSpeed = 0.15;
-let jumpForce = 0.3;
-let gravity = -0.015;
-let playerOnGround = false;
-let keys = {};
-let mouse = { x: 0, y: 0 };
-let raycaster = new THREE.Raycaster();
-let cameraDistance = 5;
-let cameraAngleX = 0;
-let cameraAngleY = 0.5;
-let isPointerLocked = false;
+let roomId = null;
+let isHost = false;
+let playerName = '';
 
-const blockTypes = [
-  { name: 'Wood', color: '#8B4513' },
-  { name: 'Stone', color: '#808080' },
-  { name: 'Grass', color: '#228B22' },
-  { name: 'Brick', color: '#DC143C' },
-  { name: 'Gold', color: '#FFD700' },
-  { name: 'Diamond', color: '#4169E1' },
-  { name: 'Pink', color: '#FF69B4' },
-  { name: 'Ice', color: '#87CEEB' }
-];
+// DOM Elements
+const screens = {
+  mainMenu: document.getElementById('mainMenu'),
+  lobby: document.getElementById('lobby'),
+  blackjackGame: document.getElementById('blackjackGame'),
+  pokerGame: document.getElementById('pokerGame'),
+  warGame: document.getElementById('warGame'),
+  solitaireGame: document.getElementById('solitaireGame')
+};
 
-// Avatar Preview
-function drawAvatarPreview() {
-  const canvas = document.getElementById('avatarCanvas');
-  const ctx = canvas.getContext('2d');
-  const color = document.querySelector('.color-option.selected')?.dataset.color || '#4a90d9';
-  const hat = document.querySelector('.hat-option.selected')?.dataset.hat || 'none';
-
-  ctx.clearRect(0, 0, 200, 200);
-  ctx.fillStyle = '#1a1a2e';
-  ctx.fillRect(0, 0, 200, 200);
-
-  // Body
-  ctx.fillStyle = color;
-  ctx.fillRect(70, 80, 60, 80);
-
-  // Head
-  ctx.fillStyle = '#ffd5b4';
-  ctx.beginPath();
-  ctx.arc(100, 55, 30, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eyes
-  ctx.fillStyle = 'white';
-  ctx.beginPath();
-  ctx.arc(88, 50, 8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(112, 50, 8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#333';
-  ctx.beginPath();
-  ctx.arc(90, 50, 4, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(114, 50, 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Smile
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(100, 60, 10, 0.1 * Math.PI, 0.9 * Math.PI);
-  ctx.stroke();
-
-  // Arms
-  ctx.fillStyle = color;
-  ctx.fillRect(45, 85, 20, 60);
-  ctx.fillRect(135, 85, 20, 60);
-
-  // Legs
-  ctx.fillRect(75, 160, 22, 40);
-  ctx.fillRect(103, 160, 22, 40);
-
-  // Hat
-  if (hat === 'crown') {
-    ctx.fillStyle = '#FFD700';
-    ctx.beginPath();
-    ctx.moveTo(70, 30);
-    ctx.lineTo(80, 10);
-    ctx.lineTo(90, 25);
-    ctx.lineTo(100, 5);
-    ctx.lineTo(110, 25);
-    ctx.lineTo(120, 10);
-    ctx.lineTo(130, 30);
-    ctx.closePath();
-    ctx.fill();
-  } else if (hat === 'cap') {
-    ctx.fillStyle = '#e74c3c';
-    ctx.fillRect(65, 25, 70, 20);
-    ctx.fillRect(60, 35, 40, 10);
-  } else if (hat === 'tophat') {
-    ctx.fillStyle = '#2c3e50';
-    ctx.fillRect(75, 5, 50, 35);
-    ctx.fillRect(65, 35, 70, 8);
-  }
+// Utility functions
+function showScreen(screenId) {
+  Object.values(screens).forEach(s => s.classList.remove('active'));
+  screens[screenId].classList.add('active');
 }
 
-// Login Screen Logic
-document.querySelectorAll('.color-option').forEach(opt => {
-  opt.addEventListener('click', () => {
-    document.querySelectorAll('.color-option').forEach(o => o.classList.remove('selected'));
-    opt.classList.add('selected');
-    drawAvatarPreview();
-  });
-});
-
-document.querySelectorAll('.hat-option').forEach(opt => {
-  opt.addEventListener('click', () => {
-    document.querySelectorAll('.hat-option').forEach(o => o.classList.remove('selected'));
-    opt.classList.add('selected');
-    drawAvatarPreview();
-  });
-});
-
-document.getElementById('playBtn').addEventListener('click', () => {
-  const username = document.getElementById('username').value.trim();
-  if (!username) {
-    alert('Please enter a username!');
-    return;
+function createCardElement(card, hidden = false) {
+  const div = document.createElement('div');
+  div.className = `card ${hidden ? 'hidden' : ''} dealt`;
+  
+  if (!hidden && card) {
+    const isRed = card.suit === 'hearts' || card.suit === 'diamonds';
+    div.classList.add(isRed ? 'red' : 'black');
+    
+    const suitSymbol = {
+      'hearts': '♥',
+      'diamonds': '♦',
+      'clubs': '♣',
+      'spades': '♠'
+    }[card.suit];
+    
+    div.innerHTML = `
+      <span class="rank">${card.rank}</span>
+      <span class="suit">${suitSymbol}</span>
+      <span class="rank-bottom">${card.rank}</span>
+    `;
   }
-  currentUser = {
-    username,
-    character: {
-      color: document.querySelector('.color-option.selected')?.dataset.color || '#4a90d9',
-      hat: document.querySelector('.hat-option.selected')?.dataset.hat || 'none'
-    }
-  };
-  showScreen('lobbyScreen');
-  document.getElementById('lobbyUsername').textContent = username;
-  document.getElementById('lobbyAvatar').style.background = currentUser.character.color;
-});
+  
+  return div;
+}
 
-// Game Selection
+function getSuitSymbol(suit) {
+  return { 'hearts': '♥', 'diamonds': '♦', 'clubs': '♣', 'spades': '♠' }[suit];
+}
+
+// Main Menu
+let selectedGame = null;
+
 document.querySelectorAll('.game-card').forEach(card => {
   card.addEventListener('click', () => {
-    const gameId = card.dataset.game;
-    joinGame(gameId);
+    document.querySelectorAll('.game-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    selectedGame = card.dataset.game;
   });
 });
 
-document.getElementById('backToLobby').addEventListener('click', () => {
-  leaveGame();
-  showScreen('lobbyScreen');
+document.getElementById('createRoomBtn').addEventListener('click', () => {
+  playerName = document.getElementById('playerName').value.trim();
+  if (!playerName) {
+    alert('Please enter your name');
+    return;
+  }
+  if (!selectedGame) {
+    alert('Please select a game');
+    return;
+  }
+  
+  if (selectedGame === 'solitaire') {
+    showScreen('solitaireGame');
+    initSolitaire();
+    return;
+  }
+  
+  socket.emit('createRoom', { username: playerName, gameType: selectedGame });
 });
 
-function showScreen(screenId) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(screenId).classList.add('active');
+document.getElementById('joinRoomBtn').addEventListener('click', () => {
+  playerName = document.getElementById('playerName').value.trim();
+  if (!playerName) {
+    alert('Please enter your name');
+    return;
+  }
+  
+  const code = document.getElementById('roomCode').value.trim().toUpperCase();
+  if (!code) {
+    alert('Please enter a room code');
+    return;
+  }
+  
+  socket.emit('joinRoom', { username: playerName, roomId: code });
+});
+
+// Lobby
+document.getElementById('backBtn').addEventListener('click', () => {
+  showScreen('mainMenu');
+  socket.disconnect();
+  socket.connect();
+});
+
+document.getElementById('startGameBtn').addEventListener('click', () => {
+  socket.emit('startGame');
+});
+
+// Socket events
+socket.on('roomCreated', (data) => {
+  roomId = data.roomId;
+  isHost = true;
+  document.getElementById('displayRoomCode').textContent = roomId;
+  document.getElementById('startGameBtn').style.display = 'block';
+  document.getElementById('waitingMsg').style.display = 'none';
+  updateLobbyPlayers(data.room.players);
+  showScreen('lobby');
+});
+
+socket.on('roomJoined', (data) => {
+  roomId = data.roomId;
+  isHost = false;
+  document.getElementById('displayRoomCode').textContent = roomId;
+  document.getElementById('startGameBtn').style.display = 'none';
+  document.getElementById('waitingMsg').style.display = 'block';
+  updateLobbyPlayers(data.room.players);
+  showScreen('lobby');
+});
+
+socket.on('playerJoined', (data) => {
+  updateLobbyPlayers(data.players);
+});
+
+socket.on('playerLeft', (data) => {
+  updateLobbyPlayers(data.players);
+});
+
+socket.on('error', (data) => {
+  alert(data.message);
+});
+
+function updateLobbyPlayers(players) {
+  const container = document.getElementById('lobbyPlayers');
+  container.innerHTML = players.map(p => `
+    <div class="player-item">
+      <div class="player-avatar">${p.username[0].toUpperCase()}</div>
+      <span>${p.username}</span>
+    </div>
+  `).join('');
 }
 
-function joinGame(gameId) {
-  currentGame = gameId;
-  socket.emit('joinGame', {
-    username: currentUser.username,
-    gameMode: gameId,
-    character: currentUser.character
-  });
-}
-
-function leaveGame() {
-  if (isPlaying) {
+// Exit game buttons
+document.querySelectorAll('.exit-game').forEach(btn => {
+  btn.addEventListener('click', () => {
+    showScreen('mainMenu');
     socket.disconnect();
     socket.connect();
-    isPlaying = false;
-    if (renderer) {
-      renderer.dispose();
-    }
+  });
+});
+
+// ==================== BLACKJACK ====================
+let blackjackState = {
+  hand: [],
+  dealerCard: null,
+  value: 0
+};
+
+socket.on('blackjackStart', (data) => {
+  blackjackState.hand = data.hand;
+  blackjackState.dealerCard = data.dealerCard;
+  showScreen('blackjackGame');
+  renderBlackjack();
+  document.getElementById('bjActions').style.display = 'flex';
+  document.getElementById('bjResults').style.display = 'none';
+});
+
+socket.on('blackjackUpdate', (data) => {
+  blackjackState.hand = data.hand;
+  blackjackState.value = data.value;
+  renderBlackjack();
+});
+
+socket.on('blackjackBust', (data) => {
+  blackjackState.hand = data.hand;
+  blackjackState.value = data.value;
+  renderBlackjack();
+  showBlackjackResult('Bust! You lose.', false);
+});
+
+socket.on('blackjackStood', () => {
+  document.getElementById('bjActions').style.display = 'none';
+});
+
+socket.on('blackjackEnd', (data) => {
+  const result = data.results[socket.id];
+  const dealerDiv = document.getElementById('dealerHand');
+  dealerDiv.innerHTML = '';
+  data.dealerHand.forEach(card => {
+    dealerDiv.appendChild(createCardElement(card));
+  });
+  document.getElementById('dealerValue').textContent = `Dealer: ${data.dealerValue}`;
+  
+  let message = '';
+  if (result.result === 'win') {
+    message = `You win $${result.amount}!`;
+  } else if (result.result === 'lose') {
+    message = `You lose $${Math.abs(result.amount)}`;
+  } else {
+    message = 'Push!';
   }
+  showBlackjackResult(message, result.result === 'win');
+});
+
+function renderBlackjack() {
+  const playerDiv = document.getElementById('playerHand');
+  playerDiv.innerHTML = '';
+  blackjackState.hand.forEach(card => {
+    playerDiv.appendChild(createCardElement(card));
+  });
+  
+  let value = 0;
+  let aces = 0;
+  blackjackState.hand.forEach(card => {
+    value += card.value;
+    if (card.rank === 'A') aces++;
+  });
+  while (value > 21 && aces > 0) {
+    value -= 10;
+    aces--;
+  }
+  document.getElementById('playerValue').textContent = `You: ${value}`;
+  
+  const dealerDiv = document.getElementById('dealerHand');
+  dealerDiv.innerHTML = '';
+  dealerDiv.appendChild(createCardElement(blackjackState.dealerCard));
+  dealerDiv.appendChild(createCardElement(null, true));
+  document.getElementById('dealerValue').textContent = 'Dealer: ?';
 }
 
-// Socket Events
-socket.on('gameJoined', (data) => {
-  showScreen('gameScreen');
-  initGame(data);
+function showBlackjackResult(message, isWin) {
+  document.getElementById('bjResultText').textContent = message;
+  document.getElementById('bjResultText').className = isWin ? 'win' : 'lose';
+  document.getElementById('bjResults').style.display = 'flex';
+  document.getElementById('bjActions').style.display = 'none';
+}
+
+document.getElementById('hitBtn').addEventListener('click', () => {
+  socket.emit('blackjackHit');
 });
 
-socket.on('playerJoined', (player) => {
-  addOtherPlayer(player);
-  addChatMessage(`${player.username} joined the game`, '#2ecc71');
+document.getElementById('standBtn').addEventListener('click', () => {
+  socket.emit('blackjackStand');
 });
 
-socket.on('playerLeft', (playerId) => {
-  if (otherPlayers[playerId]) {
-    scene.remove(otherPlayers[playerId].mesh);
-    delete otherPlayers[playerId];
+document.getElementById('bjNewRound').addEventListener('click', () => {
+  socket.emit('startGame');
+});
+
+// ==================== POKER ====================
+let pokerState = {
+  hand: [],
+  selectedCards: new Set(),
+  phase: 'betting'
+};
+
+socket.on('pokerStart', (data) => {
+  pokerState.hand = data.hand;
+  pokerState.selectedCards.clear();
+  pokerState.phase = 'betting';
+  showScreen('pokerGame');
+  renderPoker();
+  updatePokerOpponents(data.players);
+  document.getElementById('pokerActions').style.display = 'flex';
+  document.getElementById('pokerBetBtn').style.display = 'block';
+  document.getElementById('pokerFoldBtn').style.display = 'block';
+  document.getElementById('pokerDrawBtn').style.display = 'none';
+});
+
+socket.on('yourTurn', () => {
+  document.getElementById('pokerActions').style.opacity = '1';
+  document.getElementById('pokerActions').style.pointerEvents = 'auto';
+});
+
+socket.on('pokerBetMade', (data) => {
+  document.getElementById('pokerPot').textContent = data.pot;
+});
+
+socket.on('pokerFold', (data) => {
+  // Handle fold
+});
+
+socket.on('pokerNewHand', (data) => {
+  pokerState.hand = data.hand;
+  pokerState.selectedCards.clear();
+  pokerState.phase = 'betting';
+  renderPoker();
+  document.getElementById('pokerBetBtn').style.display = 'block';
+  document.getElementById('pokerFoldBtn').style.display = 'block';
+  document.getElementById('pokerDrawBtn').style.display = 'none';
+});
+
+socket.on('pokerEnd', (data) => {
+  const isWinner = data.winnerId === socket.id;
+  const message = isWinner ? `You win $${data.pot}!` : 'You lost this round';
+  
+  // Show all hands
+  if (data.hands[socket.id]) {
+    pokerState.hand = data.hands[socket.id];
+    renderPoker();
   }
-});
-
-socket.on('playerMoved', (data) => {
-  if (otherPlayers[data.id]) {
-    otherPlayers[data.id].targetPosition = data.position;
-    otherPlayers[data.id].targetRotation = data.rotation;
+  
+  if (data.handRanks[socket.id]) {
+    document.getElementById('pokerHandRank').textContent = data.handRanks[socket.id].name;
   }
+  
+  setTimeout(() => {
+    alert(message);
+  }, 500);
 });
 
-socket.on('blockPlaced', (data) => {
-  placeBlockVisual(data.block);
-});
-
-socket.on('blockRemoved', (data) => {
-  removeBlockVisual(data.x, data.y, data.z);
-});
-
-socket.on('chatMessage', (data) => {
-  addChatMessage(`${data.username}: ${data.message}`);
-});
-
-// Game Initialization
-function initGame(data) {
-  isPlaying = true;
-  const canvas = document.getElementById('gameCanvas');
-
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87CEEB);
-  scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
-
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-  // Lighting
-  const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-  scene.add(ambientLight);
-
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  directionalLight.position.set(50, 100, 50);
-  directionalLight.castShadow = true;
-  directionalLight.shadow.mapSize.width = 2048;
-  directionalLight.shadow.mapSize.height = 2048;
-  directionalLight.shadow.camera.near = 0.5;
-  directionalLight.shadow.camera.far = 500;
-  directionalLight.shadow.camera.left = -100;
-  directionalLight.shadow.camera.right = 100;
-  directionalLight.shadow.camera.top = 100;
-  directionalLight.shadow.camera.bottom = -100;
-  scene.add(directionalLight);
-
-  const hemisphereLight = new THREE.HemisphereLight(0x87CEEB, 0x362907, 0.3);
-  scene.add(hemisphereLight);
-
-  // Ground
-  const groundGeometry = new THREE.PlaneGeometry(200, 200);
-  const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x3a7d44 });
-  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  // Grid helper
-  const gridHelper = new THREE.GridHelper(200, 100, 0x2d5a32, 0x2d5a32);
-  gridHelper.position.y = 0.01;
-  scene.add(gridHelper);
-
-  // Create player
-  createPlayer(data.player);
-
-  // Add existing blocks
-  if (data.world && data.world.blocks) {
-    data.world.blocks.forEach(block => placeBlockVisual(block));
-  }
-
-  // Add other players
-  if (data.players) {
-    data.players.forEach(p => {
-      if (p.id !== socket.id) {
-        addOtherPlayer(p);
+function renderPoker() {
+  const handDiv = document.getElementById('pokerHand');
+  handDiv.innerHTML = '';
+  
+  pokerState.hand.forEach((card, index) => {
+    const cardEl = createCardElement(card);
+    if (pokerState.selectedCards.has(index)) {
+      cardEl.classList.add('selected');
+    }
+    cardEl.addEventListener('click', () => {
+      if (pokerState.phase === 'draw') {
+        if (pokerState.selectedCards.has(index)) {
+          pokerState.selectedCards.delete(index);
+        } else {
+          pokerState.selectedCards.add(index);
+        }
+        renderPoker();
       }
     });
+    handDiv.appendChild(cardEl);
+  });
+}
+
+function updatePokerOpponents(players) {
+  const container = document.getElementById('pokerOpponents');
+  container.innerHTML = players.filter(p => p.id !== socket.id).map(p => `
+    <div class="opponent-info">
+      <h4>${p.username}</h4>
+      <div class="hand">
+        ${Array(5).fill('<div class="card hidden"></div>').join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('pokerBetBtn').addEventListener('click', () => {
+  socket.emit('pokerBet', { amount: 50 });
+  pokerState.phase = 'draw';
+  document.getElementById('pokerBetBtn').style.display = 'none';
+  document.getElementById('pokerFoldBtn').style.display = 'none';
+  document.getElementById('pokerDrawBtn').style.display = 'block';
+});
+
+document.getElementById('pokerFoldBtn').addEventListener('click', () => {
+  socket.emit('pokerFold');
+});
+
+document.getElementById('pokerDrawBtn').addEventListener('click', () => {
+  socket.emit('pokerDraw', { cards: Array.from(pokerState.selectedCards) });
+});
+
+// ==================== WAR ====================
+let warState = {
+  playerCard: null,
+  opponentCard: null
+};
+
+socket.on('warStart', (data) => {
+  showScreen('warGame');
+  const opponent = data.players.find(p => p.id !== socket.id);
+  if (opponent) {
+    document.getElementById('warOpponentName').textContent = opponent.username;
   }
+  document.getElementById('warScore1').textContent = '0';
+  document.getElementById('warScore2').textContent = '0';
+  document.getElementById('playerPile').textContent = data.cardCounts[socket.id] || 26;
+  const opponentId = Object.keys(data.cardCounts).find(id => id !== socket.id);
+  document.getElementById('opponentPile').textContent = data.cardCounts[opponentId] || 26;
+  document.getElementById('playerCard').innerHTML = '';
+  document.getElementById('opponentCard').innerHTML = '';
+});
 
-  // Update game title
-  const titles = {
-    'obby-1': 'Obby Challenge',
-    'build-1': 'Free Build',
-    'racing-1': 'Speed Race',
-    'survival-1': 'Survival Island'
-  };
-  document.getElementById('currentGameTitle').textContent = titles[currentGame] || 'Game';
-  document.getElementById('onlineCount').textContent = data.players.length;
-
-  // Event listeners
-  setupControls();
-
-  // Start game loop
-  animate();
-}
-
-function createPlayer(playerData) {
-  const group = new THREE.Group();
-
-  // Body
-  const bodyGeometry = new THREE.BoxGeometry(0.6, 0.8, 0.4);
-  const bodyMaterial = new THREE.MeshLambertMaterial({ color: playerData.character.color });
-  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-  body.position.y = 0.9;
-  body.castShadow = true;
-  group.add(body);
-
-  // Head
-  const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-  const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffd5b4 });
-  const head = new THREE.Mesh(headGeometry, headMaterial);
-  head.position.y = 1.65;
-  head.castShadow = true;
-  group.add(head);
-
-  // Eyes
-  const eyeGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.05);
-  const eyeMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
-  const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-  leftEye.position.set(-0.12, 1.7, 0.25);
-  group.add(leftEye);
-  const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-  rightEye.position.set(0.12, 1.7, 0.25);
-  group.add(rightEye);
-
-  // Arms
-  const armGeometry = new THREE.BoxGeometry(0.2, 0.7, 0.2);
-  const armMaterial = new THREE.MeshLambertMaterial({ color: playerData.character.color });
-  const leftArm = new THREE.Mesh(armGeometry, armMaterial);
-  leftArm.position.set(-0.45, 0.9, 0);
-  leftArm.castShadow = true;
-  group.add(leftArm);
-  const rightArm = new THREE.Mesh(armGeometry, armMaterial);
-  rightArm.position.set(0.45, 0.9, 0);
-  rightArm.castShadow = true;
-  group.add(rightArm);
-
-  // Legs
-  const legGeometry = new THREE.BoxGeometry(0.25, 0.6, 0.3);
-  const legMaterial = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
-  const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
-  leftLeg.position.set(-0.15, 0.3, 0);
-  leftLeg.castShadow = true;
-  group.add(leftLeg);
-  const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
-  rightLeg.position.set(0.15, 0.3, 0);
-  rightLeg.castShadow = true;
-  group.add(rightLeg);
-
-  // Hat
-  if (playerData.character.hat === 'crown') {
-    const crownGeometry = new THREE.ConeGeometry(0.3, 0.4, 4);
-    const crownMaterial = new THREE.MeshLambertMaterial({ color: 0xFFD700 });
-    const crown = new THREE.Mesh(crownGeometry, crownMaterial);
-    crown.position.y = 2.1;
-    crown.rotation.y = Math.PI / 4;
-    group.add(crown);
-  } else if (playerData.character.hat === 'cap') {
-    const capGeometry = new THREE.BoxGeometry(0.55, 0.15, 0.55);
-    const capMaterial = new THREE.MeshLambertMaterial({ color: 0xe74c3c });
-    const cap = new THREE.Mesh(capGeometry, capMaterial);
-    cap.position.y = 1.95;
-    group.add(cap);
-  } else if (playerData.character.hat === 'tophat') {
-    const hatGeometry = new THREE.CylinderGeometry(0.25, 0.3, 0.5, 8);
-    const hatMaterial = new THREE.MeshLambertMaterial({ color: 0x2c3e50 });
-    const hat = new THREE.Mesh(hatGeometry, hatMaterial);
-    hat.position.y = 2.15;
-    group.add(hat);
-    const brimGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.08, 8);
-    const brim = new THREE.Mesh(brimGeometry, hatMaterial);
-    brim.position.y = 1.92;
-    group.add(brim);
+socket.on('warCardPlayed', (data) => {
+  const cardEl = createCardElement(data.card);
+  if (data.playerId === socket.id) {
+    document.getElementById('playerCard').innerHTML = '';
+    document.getElementById('playerCard').appendChild(cardEl);
+  } else {
+    document.getElementById('opponentCard').innerHTML = '';
+    document.getElementById('opponentCard').appendChild(cardEl);
   }
+});
 
-  group.position.set(0, 0, 0);
-  scene.add(group);
-  player = group;
-}
+socket.on('warRoundWinner', (data) => {
+  const isWinner = data.winnerId === socket.id;
+  document.getElementById('warScore1').textContent = data.scores[socket.id] || 0;
+  const opponentId = Object.keys(data.scores).find(id => id !== socket.id);
+  document.getElementById('warScore2').textContent = data.scores[opponentId] || 0;
+});
 
-function addOtherPlayer(playerData) {
-  const group = new THREE.Group();
+socket.on('warTie', (data) => {
+  // Handle tie
+});
 
-  const bodyGeometry = new THREE.BoxGeometry(0.6, 0.8, 0.4);
-  const bodyMaterial = new THREE.MeshLambertMaterial({ color: playerData.character.color });
-  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-  body.position.y = 0.9;
-  group.add(body);
+socket.on('warEnd', (data) => {
+  const isWinner = data.winnerId === socket.id;
+  document.getElementById('warScore1').textContent = data.scores[socket.id] || 0;
+  const opponentId = Object.keys(data.scores).find(id => id !== socket.id);
+  document.getElementById('warScore2').textContent = data.scores[opponentId] || 0;
+  
+  setTimeout(() => {
+    alert(isWinner ? 'You win the war!' : 'You lost the war!');
+  }, 500);
+});
 
-  const headGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-  const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffd5b4 });
-  const head = new THREE.Mesh(headGeometry, headMaterial);
-  head.position.y = 1.65;
-  group.add(head);
+document.getElementById('warPlayBtn').addEventListener('click', () => {
+  socket.emit('warPlay');
+});
 
-  const nameGeometry = new THREE.PlaneGeometry(1, 0.3);
-  const nameCanvas = document.createElement('canvas');
-  nameCanvas.width = 256;
-  nameCanvas.height = 64;
-  const nameCtx = nameCanvas.getContext('2d');
-  nameCtx.fillStyle = 'rgba(0,0,0,0.7)';
-  nameCtx.fillRect(0, 0, 256, 64);
-  nameCtx.fillStyle = 'white';
-  nameCtx.font = 'bold 32px Arial';
-  nameCtx.textAlign = 'center';
-  nameCtx.fillText(playerData.username, 128, 44);
-  const nameTexture = new THREE.CanvasTexture(nameCanvas);
-  const nameMaterial = new THREE.MeshBasicMaterial({ map: nameTexture, transparent: true });
-  const nameTag = new THREE.Mesh(nameGeometry, nameMaterial);
-  nameTag.position.y = 2.3;
-  group.add(nameTag);
+// ==================== SOLITAIRE ====================
+let solitaireState = {
+  deck: [],
+  waste: [],
+  foundations: [[], [], [], []],
+  tableau: [[], [], [], [], [], [], []],
+  moves: 0,
+  startTime: null,
+  timer: null,
+  selectedPile: null
+};
 
-  group.position.set(
-    playerData.position.x,
-    playerData.position.y,
-    playerData.position.z
-  );
-
-  scene.add(group);
-  otherPlayers[playerData.id] = {
-    mesh: group,
-    targetPosition: playerData.position,
-    targetRotation: playerData.rotation
-  };
-}
-
-function placeBlockVisual(block) {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const material = new THREE.MeshLambertMaterial({ color: block.color || getBlockColor(block.type) });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(block.x, block.y + 0.5, block.z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.userData = { x: block.x, y: block.y, z: block.z, type: block.type };
-  scene.add(mesh);
-  blockMeshes[`${block.x},${block.y},${block.z}`] = mesh;
-  blocks.push(block);
-}
-
-function removeBlockVisual(x, y, z) {
-  const key = `${x},${y},${z}`;
-  if (blockMeshes[key]) {
-    scene.remove(blockMeshes[key]);
-    delete blockMeshes[key];
+function initSolitaire() {
+  const suits = ['hearts', 'diamonds', 'clubs', 'spades'];
+  const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  
+  let deck = [];
+  for (const suit of suits) {
+    for (const rank of ranks) {
+      deck.push({ suit, rank, faceUp: false });
+    }
   }
-  blocks = blocks.filter(b => !(b.x === x && b.y === y && b.z === z));
-}
-
-function getBlockColor(type) {
-  const colors = {
-    'grass': '#228B22',
-    'stone': '#808080',
-    'wood': '#8B4513',
-    'brick': '#DC143C',
-    'sand': '#F4A460',
-    'road': '#555555'
+  
+  // Shuffle
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  
+  solitaireState = {
+    deck: deck,
+    waste: [],
+    foundations: [[], [], [], []],
+    tableau: [[], [], [], [], [], [], []],
+    moves: 0,
+    startTime: Date.now(),
+    timer: setInterval(updateSolitaireTimer, 1000),
+    selectedPile: null
   };
-  return colors[type] || '#808080';
+  
+  // Deal to tableau
+  for (let i = 0; i < 7; i++) {
+    for (let j = i; j < 7; j++) {
+      const card = solitaireState.deck.pop();
+      card.faceUp = (j === i);
+      solitaireState.tableau[j].push(card);
+    }
+  }
+  
+  renderSolitaire();
+  document.getElementById('solMoves').textContent = '0';
 }
 
-// Controls
-function setupControls() {
-  document.addEventListener('keydown', (e) => {
-    keys[e.code] = true;
-    if (e.code >= 'Digit1' && e.code <= 'Digit8') {
-      selectedSlot = parseInt(e.code.replace('Digit', '')) - 1;
-      updateHotbar();
+function updateSolitaireTimer() {
+  const elapsed = Math.floor((Date.now() - solitaireState.startTime) / 1000);
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  document.getElementById('solTime').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function renderSolitaire() {
+  // Render stock
+  const stockDiv = document.getElementById('stock');
+  stockDiv.innerHTML = '';
+  if (solitaireState.deck.length > 0) {
+    const card = document.createElement('div');
+    card.className = 'card hidden';
+    card.style.position = 'absolute';
+    stockDiv.appendChild(card);
+  }
+  stockDiv.onclick = () => drawFromStock();
+  
+  // Render waste
+  const wasteDiv = document.getElementById('waste');
+  wasteDiv.innerHTML = '';
+  if (solitaireState.waste.length > 0) {
+    const topCard = solitaireState.waste[solitaireState.waste.length - 1];
+    const cardEl = createCardElement(topCard);
+    cardEl.style.position = 'absolute';
+    cardEl.onclick = () => selectPile('waste', solitaireState.waste.length - 1);
+    wasteDiv.appendChild(cardEl);
+  }
+  
+  // Render foundations
+  for (let i = 0; i < 4; i++) {
+    const foundDiv = document.getElementById(`foundation-${i}`);
+    foundDiv.innerHTML = '';
+    if (solitaireState.foundations[i].length > 0) {
+      const topCard = solitaireState.foundations[i][solitaireState.foundations[i].length - 1];
+      const cardEl = createCardElement(topCard);
+      cardEl.style.position = 'absolute';
+      foundDiv.appendChild(cardEl);
     }
-  });
-
-  document.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (isPointerLocked) {
-      cameraAngleX -= e.movementX * 0.002;
-      cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY - e.movementY * 0.002));
-    }
-  });
-
-  document.addEventListener('mousedown', (e) => {
-    if (!isPointerLocked) {
-      document.getElementById('gameCanvas').requestPointerLock();
-      return;
-    }
-
-    const chatInput = document.getElementById('chatInput');
-    if (document.activeElement === chatInput) return;
-
-    if (e.button === 0) {
-      removeBlock();
-    } else if (e.button === 2) {
-      placeBlock();
-    }
-  });
-
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
-
-  document.addEventListener('pointerlockchange', () => {
-    isPointerLocked = document.pointerLockElement === document.getElementById('gameCanvas');
-  });
-
-  document.querySelectorAll('.hotbar-slot').forEach(slot => {
-    slot.addEventListener('click', () => {
-      selectedSlot = parseInt(slot.dataset.slot);
-      updateHotbar();
+    foundDiv.onclick = () => selectPile(`foundation-${i}`, 0);
+  }
+  
+  // Render tableau
+  for (let i = 0; i < 7; i++) {
+    const tabDiv = document.getElementById(`tableau-${i}`);
+    tabDiv.innerHTML = '';
+    solitaireState.tableau[i].forEach((card, index) => {
+      const cardEl = card.faceUp ? createCardElement(card) : createCardElement(null, true);
+      cardEl.style.position = 'absolute';
+      cardEl.style.top = `${index * 25}px`;
+      cardEl.onclick = (e) => {
+        e.stopPropagation();
+        selectPile(`tableau-${i}`, index);
+      };
+      tabDiv.appendChild(cardEl);
     });
-  });
+  }
+}
 
-  document.getElementById('chatInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      const msg = e.target.value.trim();
-      if (msg) {
-        socket.emit('chatMessage', msg);
-        e.target.value = '';
+function drawFromStock() {
+  if (solitaireState.deck.length === 0) {
+    solitaireState.deck = solitaireState.waste.reverse().map(c => ({ ...c, faceUp: false }));
+    solitaireState.waste = [];
+  } else {
+    const card = solitaireState.deck.pop();
+    card.faceUp = true;
+    solitaireState.waste.push(card);
+  }
+  solitaireState.moves++;
+  document.getElementById('solMoves').textContent = solitaireState.moves;
+  renderSolitaire();
+}
+
+function selectPile(pileType, cardIndex) {
+  if (solitaireState.selectedPile) {
+    // Try to move
+    const source = solitaireState.selectedPile;
+    const target = pileType;
+    
+    if (tryMove(source, target)) {
+      solitaireState.moves++;
+      document.getElementById('solMoves').textContent = solitaireState.moves;
+    }
+    solitaireState.selectedPile = null;
+  } else {
+    solitaireState.selectedPile = { type: pileType, index: cardIndex };
+  }
+  renderSolitaire();
+}
+
+function tryMove(source, target) {
+  let sourceCards = [];
+  let sourcePile = null;
+  
+  // Get source cards
+  if (source.type === 'waste') {
+    sourceCards = [solitaireState.waste[source.index]];
+    sourcePile = solitaireState.waste;
+  } else if (source.type.startsWith('tableau')) {
+    const tabIdx = parseInt(source.type.split('-')[1]);
+    sourceCards = solitaireState.tableau[tabIdx].slice(source.index);
+    sourcePile = solitaireState.tableau[tabIdx];
+  } else if (source.type.startsWith('foundation')) {
+    const foundIdx = parseInt(source.type.split('-')[1]);
+    sourceCards = [solitaireState.foundations[foundIdx][solitaireState.foundations[foundIdx].length - 1]];
+    sourcePile = solitaireState.foundations[foundIdx];
+  }
+  
+  if (sourceCards.length === 0) return false;
+  
+  // Get target pile
+  let targetPile = null;
+  if (target === 'waste') return false;
+  if (target.startsWith('foundation')) {
+    const foundIdx = parseInt(target.split('-')[1]);
+    targetPile = solitaireState.foundations[foundIdx];
+    
+    if (sourceCards.length !== 1) return false;
+    
+    const card = sourceCards[0];
+    if (targetPile.length === 0) {
+      if (card.rank === 'A') {
+        targetPile.push(card);
+        sourcePile.splice(source.index, 1);
+        checkWin();
+        return true;
       }
+      return false;
     }
-  });
-
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-}
-
-function updateHotbar() {
-  document.querySelectorAll('.hotbar-slot').forEach((slot, i) => {
-    slot.classList.toggle('selected', i === selectedSlot);
-  });
-}
-
-function placeBlock() {
-  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-  const intersects = raycaster.intersectObjects(scene.children, true);
-
-  if (intersects.length > 0) {
-    const intersect = intersects[0];
-    const normal = intersect.face.normal.clone();
-    const pos = intersect.point.clone().sub(normal.multiplyScalar(0.5));
-
-    const blockX = Math.round(pos.x);
-    const blockY = Math.round(pos.y - 0.5);
-    const blockZ = Math.round(pos.z);
-
-    const existingBlock = blocks.find(b => b.x === blockX && b.y === blockY && b.z === blockZ);
-    if (existingBlock) return;
-
-    const block = {
-      x: blockX,
-      y: blockY,
-      z: blockZ,
-      type: blockTypes[selectedSlot].name.toLowerCase(),
-      color: blockTypes[selectedSlot].color
-    };
-
-    socket.emit('placeBlock', { block });
-    placeBlockVisual(block);
+    
+    const topCard = targetPile[targetPile.length - 1];
+    if (card.suit === topCard.suit && getRankValue(card.rank) === getRankValue(topCard.rank) + 1) {
+      targetPile.push(card);
+      sourcePile.splice(source.index, 1);
+      checkWin();
+      return true;
+    }
+    return false;
   }
-}
-
-function removeBlock() {
-  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-  const intersects = raycaster.intersectObjects(scene.children, true);
-
-  const blockIntersect = intersects.find(i => i.object.userData && i.object.userData.x !== undefined);
-
-  if (blockIntersect) {
-    const { x, y, z } = blockIntersect.object.userData;
-    socket.emit('removeBlock', { x, y, z });
-    removeBlockVisual(x, y, z);
-  }
-}
-
-function addChatMessage(message, color = 'white') {
-  const chatMessages = document.getElementById('chatMessages');
-  const msgDiv = document.createElement('div');
-  msgDiv.className = 'chat-message';
-  msgDiv.innerHTML = `<span style="color:${color}">${message}</span>`;
-  chatMessages.appendChild(msgDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// Game Loop
-function animate() {
-  if (!isPlaying) return;
-  requestAnimationFrame(animate);
-
-  updatePlayer();
-  updateCamera();
-  updateOtherPlayers();
-
-  renderer.render(scene, camera);
-}
-
-function updatePlayer() {
-  if (!player) return;
-
-  const chatInput = document.getElementById('chatInput');
-  if (document.activeElement === chatInput) return;
-
-  const forward = new THREE.Vector3(
-    -Math.sin(cameraAngleX),
-    0,
-    -Math.cos(cameraAngleX)
-  ).normalize();
-
-  const right = new THREE.Vector3(
-    Math.cos(cameraAngleX),
-    0,
-    -Math.sin(cameraAngleX)
-  ).normalize();
-
-  let moveX = 0;
-  let moveZ = 0;
-
-  if (keys['KeyW'] || keys['ArrowUp']) { moveX += forward.x; moveZ += forward.z; }
-  if (keys['KeyS'] || keys['ArrowDown']) { moveX -= forward.x; moveZ -= forward.z; }
-  if (keys['KeyA'] || keys['ArrowLeft']) { moveX -= right.x; moveZ -= right.z; }
-  if (keys['KeyD'] || keys['ArrowRight']) { moveX += right.x; moveZ += right.z; }
-
-  const moveLength = Math.sqrt(moveX * moveX + moveZ * moveZ);
-  if (moveLength > 0) {
-    moveX = (moveX / moveLength) * moveSpeed;
-    moveZ = (moveZ / moveLength) * moveSpeed;
-  }
-
-  velocity.x = moveX;
-  velocity.z = moveZ;
-
-  if ((keys['Space']) && playerOnGround) {
-    velocity.y = jumpForce;
-    playerOnGround = false;
-  }
-
-  velocity.y += gravity;
-
-  player.position.x += velocity.x;
-  player.position.y += velocity.y;
-  player.position.z += velocity.z;
-
-  if (player.position.y <= 0) {
-    player.position.y = 0;
-    velocity.y = 0;
-    playerOnGround = true;
-  }
-
-  // Check collision with blocks
-  blocks.forEach(block => {
-    const blockPos = new THREE.Vector3(block.x, block.y + 0.5, block.z);
-    const playerPos = player.position.clone();
-    playerPos.y -= 0.5;
-
-    if (Math.abs(playerPos.x - blockPos.x) < 0.8 &&
-        Math.abs(playerPos.y - blockPos.y) < 1.2 &&
-        Math.abs(playerPos.z - blockPos.z) < 0.8) {
-      if (velocity.y < 0 && player.position.y > blockPos.y) {
-        player.position.y = blockPos.y + 1;
-        velocity.y = 0;
-        playerOnGround = true;
+  
+  if (target.startsWith('tableau')) {
+    const tabIdx = parseInt(target.split('-')[1]);
+    targetPile = solitaireState.tableau[tabIdx];
+    
+    if (targetPile.length === 0) {
+      if (sourceCards[0].rank === 'K') {
+        targetPile.push(...sourceCards);
+        sourcePile.splice(source.index);
+        flipTopCard(sourcePile);
+        return true;
       }
+      return false;
     }
-  });
-
-  // Rotate player to face camera direction
-  player.rotation.y = cameraAngleX;
-
-  // Emit movement
-  socket.emit('playerMove', {
-    position: {
-      x: player.position.x,
-      y: player.position.y,
-      z: player.position.z
-    },
-    rotation: { x: cameraAngleX, y: cameraAngleY }
-  });
-}
-
-function updateCamera() {
-  if (!player) return;
-
-  const offsetX = Math.sin(cameraAngleX) * Math.cos(cameraAngleY) * cameraDistance;
-  const offsetY = Math.sin(cameraAngleY) * cameraDistance;
-  const offsetZ = Math.cos(cameraAngleX) * Math.cos(cameraAngleY) * cameraDistance;
-
-  camera.position.set(
-    player.position.x + offsetX,
-    player.position.y + 1.5 + offsetY,
-    player.position.z + offsetZ
-  );
-
-  camera.lookAt(
-    player.position.x,
-    player.position.y + 1.5,
-    player.position.z
-  );
-}
-
-function updateOtherPlayers() {
-  Object.values(otherPlayers).forEach(other => {
-    if (other.targetPosition) {
-      other.mesh.position.lerp(
-        new THREE.Vector3(
-          other.targetPosition.x,
-          other.targetPosition.y,
-          other.targetPosition.z
-        ),
-        0.2
-      );
+    
+    const topCard = targetPile[targetPile.length - 1];
+    const sourceCard = sourceCards[0];
+    
+    if (isAlternatingColor(sourceCard, topCard) && getRankValue(sourceCard.rank) === getRankValue(topCard.rank) - 1) {
+      targetPile.push(...sourceCards);
+      sourcePile.splice(source.index);
+      flipTopCard(sourcePile);
+      return true;
     }
-  });
+    return false;
+  }
+  
+  return false;
 }
+
+function getRankValue(rank) {
+  const values = { 'A': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13 };
+  return values[rank];
+}
+
+function isAlternatingColor(card1, card2) {
+  const redSuits = ['hearts', 'diamonds'];
+  const isRed1 = redSuits.includes(card1.suit);
+  const isRed2 = redSuits.includes(card2.suit);
+  return isRed1 !== isRed2;
+}
+
+function flipTopCard(pile) {
+  if (pile.length > 0 && !pile[pile.length - 1].faceUp) {
+    pile[pile.length - 1].faceUp = true;
+  }
+}
+
+function checkWin() {
+  const totalFoundation = solitaireState.foundations.reduce((sum, f) => sum + f.length, 0);
+  if (totalFoundation === 52) {
+    clearInterval(solitaireState.timer);
+    document.getElementById('winMessage').textContent = `Completed in ${solitaireState.moves} moves!`;
+    document.getElementById('winOverlay').style.display = 'flex';
+  }
+}
+
+document.getElementById('newGameBtn').addEventListener('click', () => {
+  if (solitaireState.timer) clearInterval(solitaireState.timer);
+  initSolitaire();
+});
+
+document.getElementById('playAgainBtn').addEventListener('click', () => {
+  document.getElementById('winOverlay').style.display = 'none';
+  initSolitaire();
+});
 
 // Initialize
-drawAvatarPreview();
+document.getElementById('playerName').focus();
