@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Casino Royale - Card & Table Games</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Particles Background -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Main Menu -->
+  <div id="mainMenu" class="screen active">
+    <div class="menu-container">
+      <div class="logo">
+        <div class="logo-icon">
+          <span class="suit-icon s1">♠</span>
+          <span class="suit-icon s2">♥</span>
+          <span class="suit-icon s3">♦</span>
+          <span class="suit-icon s4">♣</span>
+        </div>
+        <h1>Casino Royale</h1>
+        <p class="subtitle">♠ Card & Table Games ♣</p>
+      </div>
+      
+      <div class="name-input">
+        <label>Your Name</label>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="15">
+      </div>
+      
+      <div class="games-grid">
+        <div class="game-card" data-game="blackjack">
+          <div class="game-icon">🃏</div>
+          <h3>Blackjack</h3>
+          <p>Beat the dealer to 21!</p>
+          <span class="player-count">2-8 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="poker">
+          <div class="game-icon">♠</div>
+          <h3>Poker</h3>
+          <p>5-Card Draw</p>
+          <span class="player-count">2-8 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="war">
+          <div class="game-icon">⚔️</div>
+          <h3>War</h3>
+          <p>Higher card wins!</p>
+          <span class="player-count">2 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="karera">
+          <div class="game-icon">🏇</div>
+          <h3>Karera</h3>
+          <p>Horse Racing Betting</p>
+          <span class="player-count">2-8 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="dice">
+          <div class="game-icon">🎲</div>
+          <h3>Dice</h3>
+          <p>Roll & Win!</p>
+          <span class="player-count">2-8 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="solitaire">
+          <div class="game-icon">🎴</div>
+          <h3>Solitaire</h3>
+          <p>Classic Klondike</p>
+          <span class="player-count">1 Player</span>
+        </div>
+      </div>
+      
+      <div class="room-actions">
+        <button id="createRoomBtn" class="btn btn-primary">
+          <span class="btn-icon">🎮</span> Create Room
+        </button>
+        <div class="join-section">
+          <input type="text" id="roomCode" placeholder="Room Code" maxlength="6">
+          <button id="joinRoomBtn" class="btn btn-secondary">
+            <span class="btn-icon">🚪</span> Join
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lobby -->
+  <div id="lobby" class="screen">
+    <div class="lobby-container">
+      <div class="lobby-header">
+        <button id="backBtn" class="btn btn-back">← Back</button>
+        <h2>Game Lobby</h2>
+        <div class="room-code">Room: <span id="displayRoomCode"></span></div>
+      </div>
+      
+      <div class="players-list">
+        <h3>Players</h3>
+        <div id="lobbyPlayers"></div>
+      </div>
+      
+      <div class="lobby-actions">
+        <button id="startGameBtn" class="btn btn-primary" style="display:none">
+          <span class="btn-icon">🚀</span> Start Game
+        </button>
+        <p id="waitingMsg" class="waiting-msg">Waiting for host to start...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Blackjack Game -->
+  <div id="blackjackGame" class="screen">
+    <div class="game-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Blackjack</h2>
+        <div class="pot-display">Pot: $<span id="bjPot">0</span></div>
+      </div>
+      
+      <div class="blackjack-table">
+        <div class="dealer-section">
+          <h3>Dealer</h3>
+          <div id="dealerHand" class="hand"></div>
+          <div id="dealerValue" class="hand-value"></div>
+        </div>
+        
+        <div class="players-section">
+          <div id="bjPlayers"></div>
+        </div>
+        
+        <div id="bjPlayerHand" class="player-hand-section">
+          <h3>Your Hand</h3>
+          <div id="playerHand" class="hand"></div>
+          <div id="playerValue" class="hand-value"></div>
+        </div>
+      </div>
+      
+      <div id="bjActions" class="game-actions">
+        <button id="hitBtn" class="btn btn-action">🃏 Hit</button>
+        <button id="standBtn" class="btn btn-action btn-stand">✋ Stand</button>
+      </div>
+      
+      <div id="bjResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="bjResultText"></h2>
+          <button id="bjNewRound" class="btn btn-primary">New Round</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Poker Game -->
+  <div id="pokerGame" class="screen">
+    <div class="game-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Poker - 5 Card Draw</h2>
+        <div class="pot-display">Pot: $<span id="pokerPot">0</span></div>
+      </div>
+      
+      <div class="poker-table">
+        <div class="opponents-section">
+          <div id="pokerOpponents"></div>
+        </div>
+        
+        <div class="community-section">
+          <div id="pokerCommunity" class="hand"></div>
+        </div>
+        
+        <div id="pokerPlayerHand" class="player-hand-section">
+          <h3>Your Hand</h3>
+          <div id="pokerHand" class="hand poker-hand"></div>
+          <div id="pokerHandRank" class="hand-rank"></div>
+        </div>
+      </div>
+      
+      <div id="pokerActions" class="game-actions">
+        <button id="pokerBetBtn" class="btn btn-action">💰 Bet $50</button>
+        <button id="pokerFoldBtn" class="btn btn-action btn-danger">❌ Fold</button>
+        <button id="pokerDrawBtn" class="btn btn-action" style="display:none">🔄 Draw Cards</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- War Game -->
+  <div id="warGame" class="screen">
+    <div class="game-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>War</h2>
+        <div class="scores-display">
+          You: <span id="warScore1">0</span> - <span id="warScore2">0</span> :Opponent
+        </div>
+      </div>
+      
+      <div class="war-table">
+        <div class="war-opponent">
+          <h3 id="warOpponentName">Opponent</h3>
+          <div class="card-pile">
+            <div id="opponentPile" class="pile-count">26</div>
+          </div>
+          <div id="opponentCard" class="war-card-slot"></div>
+        </div>
+        
+        <div class="war-center">
+          <div class="vs-text">VS</div>
+        </div>
+        
+        <div class="war-player">
+          <div id="playerCard" class="war-card-slot"></div>
+          <div class="card-pile">
+            <div id="playerPile" class="pile-count">26</div>
+          </div>
+          <h3>You</h3>
+        </div>
+      </div>
+      
+      <div id="warActions" class="game-actions">
+        <button id="warPlayBtn" class="btn btn-action btn-large">⚔️ Play Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Karera Game -->
+  <div id="kareraGame" class="screen">
+    <div class="game-container karera-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>🏇 Karera - Horse Racing</h2>
+        <div class="pot-display">Prize Pool: $<span id="kareraPot">0</span></div>
+      </div>
+      
+      <div class="karera-board">
+        <div class="karera-track">
+          <div class="finish-line">FINISH 🏁</div>
+          <div id="horseLanes" class="horse-lanes">
+            <!-- Horses will be rendered here -->
+          </div>
+          <div class="start-line">START</div>
+        </div>
+        
+        <div class="karera-betting">
+          <h3>Place Your Bets</h3>
+          <div id="horseOptions" class="horse-options">
+            <!-- Horse betting options -->
+          </div>
+          <div class="bet-amount-section">
+            <label>Bet Amount:</label>
+            <div class="bet-chips">
+              <button class="chip-btn" data-amount="10">$10</button>
+              <button class="chip-btn" data-amount="25">$25</button>
+              <button class="chip-btn" data-amount="50">$50</button>
+              <button class="chip-btn" data-amount="100">$100</button>
+            </div>
+            <div class="current-bet">Current Bet: $<span id="currentBet">0</span> on <span id="currentHorse">-</span></div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="kareraActions" class="game-actions">
+        <button id="kareraStartRaceBtn" class="btn btn-action btn-large">
+          🏁 Start Race!
+        </button>
+      </div>
+      
+      <div id="kareraResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="kareraResultText"></h2>
+          <div id="kareraWinnerInfo"></div>
+          <button id="kareraNewRace" class="btn btn-primary">New Race</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dice Game -->
+  <div id="diceGame" class="screen">
+    <div class="game-container dice-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>🎲 Dice - Roll & Win</h2>
+        <div class="pot-display">Pot: $<span id="dicePot">0</span></div>
+      </div>
+      
+      <div class="dice-board">
+        <div class="dice-display">
+          <div id="die1" class="die">⚀</div>
+          <div id="die2" class="die">⚀</div>
+          <div id="diceTotal" class="dice-total">Total: -</div>
+          <div id="dicePoint" class="dice-point" style="display:none">Point: <span>0</span></div>
+        </div>
+        
+        <div class="dice-betting">
+          <h3>Place Your Bet</h3>
+          <div class="dice-bet-options">
+            <button class="dice-bet-btn" data-bet="pass">Pass Line</button>
+            <button class="dice-bet-btn" data-bet="dont_pass">Don't Pass</button>
+            <button class="dice-bet-btn" data-bet="field">Field</button>
+            <button class="dice-bet-btn" data-bet="any_seven">Any 7</button>
+            <button class="dice-bet-btn" data-bet="any_craps">Any Craps</button>
+          </div>
+          <div class="bet-amount-section">
+            <label>Bet Amount:</label>
+            <div class="bet-chips">
+              <button class="chip-btn dice-chip" data-amount="10">$10</button>
+              <button class="chip-btn dice-chip" data-amount="25">$25</button>
+              <button class="chip-btn dice-chip" data-amount="50">$50</button>
+              <button class="chip-btn dice-chip" data-amount="100">$100</button>
+            </div>
+            <div class="current-bet">Current Bet: <span id="diceCurrentBet">None</span></div>
+          </div>
+        </div>
+        
+        <div id="dicePlayers" class="dice-players">
+          <!-- Player list -->
+        </div>
+      </div>
+      
+      <div id="diceActions" class="game-actions">
+        <button id="diceRollBtn" class="btn btn-action btn-large">
+          🎲 Roll Dice!
+        </button>
+      </div>
+      
+      <div id="diceResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="diceResultText"></h2>
+          <button id="diceNewRound" class="btn btn-primary">New Round</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Solitaire Game -->
+  <div id="solitaireGame" class="screen">
+    <div class="game-container solitaire-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>Solitaire</h2>
+        <div class="solitaire-stats">
+          <span>Moves: <span id="solMoves">0</span></span>
+          <span>Time: <span id="solTime">0:00</span></span>
+        </div>
+        <button id="newGameBtn" class="btn btn-small">New Game</button>
+      </div>
+      
+      <div class="solitaire-board">
+        <div class="top-row">
+          <div id="stock" class="card-pile sol-pile" data-pile="stock"></div>
+          <div id="waste" class="card-pile sol-pile" data-pile="waste"></div>
+          <div class="spacer"></div>
+          <div id="foundation-0" class="card-pile sol-pile foundation" data-pile="foundation-0"></div>
+          <div id="foundation-1" class="card-pile sol-pile foundation" data-pile="foundation-1"></div>
+          <div id="foundation-2" class="card-pile sol-pile foundation" data-pile="foundation-2"></div>
+          <div id="foundation-3" class="card-pile sol-pile foundation" data-pile="foundation-3"></div>
+        </div>
+        
+        <div class="tableau-row">
+          <div id="tableau-0" class="tableau-pile" data-pile="tableau-0"></div>
+          <div id="tableau-1" class="tableau-pile" data-pile="tableau-1"></div>
+          <div id="tableau-2" class="tableau-pile" data-pile="tableau-2"></div>
+          <div id="tableau-3" class="tableau-pile" data-pile="tableau-3"></div>
+          <div id="tableau-4" class="tableau-pile" data-pile="tableau-4"></div>
+          <div id="tableau-5" class="tableau-pile" data-pile="tableau-5"></div>
+          <div id="tableau-6" class="tableau-pile" data-pile="tableau-6"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Win Overlay -->
+  <div id="winOverlay" class="overlay" style="display:none">
+    <div class="overlay-content win-overlay">
+      <div class="confetti" id="confetti"></div>
+      <h2>🎉 You Win! 🎉</h2>
+      <p id="winMessage"></p>
+      <button id="playAgainBtn" class="btn btn-primary">Play Again</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
