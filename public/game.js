@@ -14,8 +14,24 @@ const screens = {
   blackjackGame: document.getElementById('blackjackGame'),
   pokerGame: document.getElementById('pokerGame'),
   warGame: document.getElementById('warGame'),
+  kareraGame: document.getElementById('kareraGame'),
+  diceGame: document.getElementById('diceGame'),
   solitaireGame: document.getElementById('solitaireGame')
 };
+
+// Create particles background
+function createParticles() {
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 50; i++) {
+    const particle = document.createElement('div');
+    particle.className = 'particle';
+    particle.style.left = Math.random() * 100 + '%';
+    particle.style.animationDelay = Math.random() * 15 + 's';
+    particle.style.animationDuration = (Math.random() * 10 + 10) + 's';
+    container.appendChild(particle);
+  }
+}
+createParticles();
 
 // Utility functions
 function showScreen(screenId) {
@@ -307,7 +323,6 @@ socket.on('pokerEnd', (data) => {
   const isWinner = data.winnerId === socket.id;
   const message = isWinner ? `You win $${data.pot}!` : 'You lost this round';
   
-  // Show all hands
   if (data.hands[socket.id]) {
     pokerState.hand = data.hands[socket.id];
     renderPoker();
@@ -431,6 +446,288 @@ document.getElementById('warPlayBtn').addEventListener('click', () => {
   socket.emit('warPlay');
 });
 
+// ==================== KARERA (Horse Racing) ====================
+let kareraState = {
+  horses: [],
+  positions: {},
+  selectedHorse: null,
+  betAmount: 0,
+  raceStarted: false
+};
+
+socket.on('kareraStart', (data) => {
+  kareraState.horses = data.horses;
+  kareraState.positions = {};
+  kareraState.selectedHorse = null;
+  kareraState.betAmount = 0;
+  kareraState.raceStarted = false;
+  
+  data.horses.forEach(h => {
+    kareraState.positions[h.id] = 0;
+  });
+  
+  showScreen('kareraGame');
+  renderKareraTrack();
+  renderKareraBetting();
+  document.getElementById('kareraActions').style.display = 'flex';
+  document.getElementById('kareraResults').style.display = 'none';
+  document.getElementById('currentBet').textContent = '0';
+  document.getElementById('currentHorse').textContent = '-';
+  document.getElementById('kareraPot').textContent = '0';
+});
+
+socket.on('kareraBetMade', (data) => {
+  document.getElementById('kareraPot').textContent = parseInt(document.getElementById('kareraPot').textContent) + data.amount;
+});
+
+socket.on('kareraRaceStarted', () => {
+  kareraState.raceStarted = true;
+  document.getElementById('kareraStartRaceBtn').disabled = true;
+  document.getElementById('kareraStartRaceBtn').textContent = 'Race in progress...';
+});
+
+socket.on('kareraUpdate', (data) => {
+  kareraState.positions = data.positions;
+  updateHorsePositions();
+});
+
+socket.on('kareraRaceFinished', (data) => {
+  const result = data.results[socket.id];
+  let message = '';
+  
+  if (result.result === 'win') {
+    message = `🎉 You win $${result.amount}! 🎉`;
+  } else {
+    message = `You lost $${Math.abs(result.amount)}`;
+  }
+  
+  document.getElementById('kareraResultText').textContent = message;
+  document.getElementById('kareraResultText').className = result.result === 'win' ? 'win' : 'lose';
+  document.getElementById('kareraWinnerInfo').innerHTML = `
+    <div class="winner-horse">
+      <span class="winner-emoji">🏆</span>
+      <span>Winner: ${data.winnerName}</span>
+    </div>
+  `;
+  document.getElementById('kareraResults').style.display = 'flex';
+});
+
+socket.on('kareraError', (data) => {
+  alert(data.message);
+});
+
+function renderKareraTrack() {
+  const container = document.getElementById('horseLanes');
+  container.innerHTML = kareraState.horses.map(horse => `
+    <div class="horse-lane" data-horse="${horse.id}">
+      <div class="horse-info">
+        <span class="horse-num">${horse.id}</span>
+        <span class="horse-name">${horse.name}</span>
+      </div>
+      <div class="horse-track">
+        <div class="horse-runner" id="horse-${horse.id}" style="background: ${horse.color}">
+          ${horse.emoji}
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderKareraBetting() {
+  const container = document.getElementById('horseOptions');
+  container.innerHTML = kareraState.horses.map(horse => `
+    <div class="horse-option ${kareraState.selectedHorse === horse.id ? 'selected' : ''}" 
+         data-horse="${horse.id}" style="border-color: ${horse.color}">
+      <span class="horse-emoji">${horse.emoji}</span>
+      <span class="horse-label">${horse.name}</span>
+      <span class="horse-odds">5x</span>
+    </div>
+  `).join('');
+  
+  // Add click handlers
+  document.querySelectorAll('.horse-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      kareraState.selectedHorse = parseInt(opt.dataset.horse);
+      renderKareraBetting();
+      document.getElementById('currentHorse').textContent = 
+        kareraState.horses.find(h => h.id === kareraState.selectedHorse).name;
+    });
+  });
+}
+
+function updateHorsePositions() {
+  kareraState.horses.forEach(horse => {
+    const el = document.getElementById(`horse-${horse.id}`);
+    if (el) {
+      el.style.left = kareraState.positions[horse.id] + '%';
+    }
+  });
+}
+
+// Chip buttons for Karera
+document.querySelectorAll('.chip-btn:not(.dice-chip)').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!kareraState.selectedHorse) {
+      alert('Select a horse first!');
+      return;
+    }
+    
+    const amount = parseInt(btn.dataset.amount);
+    kareraState.betAmount += amount;
+    document.getElementById('currentBet').textContent = kareraState.betAmount;
+    
+    socket.emit('kareraBet', {
+      horse: kareraState.selectedHorse,
+      amount: amount
+    });
+  });
+});
+
+document.getElementById('kareraStartRaceBtn').addEventListener('click', () => {
+  socket.emit('kareraStartRace');
+});
+
+document.getElementById('kareraNewRace').addEventListener('click', () => {
+  socket.emit('startGame');
+});
+
+// ==================== DICE (Craps) ====================
+let diceState = {
+  dice: [1, 1],
+  currentBet: null,
+  betAmount: 0,
+  point: null
+};
+
+socket.on('diceStart', (data) => {
+  diceState = { dice: [1, 1], currentBet: null, betAmount: 0, point: null };
+  showScreen('diceGame');
+  renderDice();
+  updateDicePlayers(data.players);
+  document.getElementById('diceActions').style.display = 'flex';
+  document.getElementById('diceResults').style.display = 'none';
+  document.getElementById('diceCurrentBet').textContent = 'None';
+  document.getElementById('dicePoint').style.display = 'none';
+});
+
+socket.on('diceBetMade', (data) => {
+  document.getElementById('dicePot').textContent = parseInt(document.getElementById('dicePot').textContent) + data.amount;
+});
+
+socket.on('diceRolled', (data) => {
+  diceState.dice = data.dice;
+  renderDiceRoll(data.dice, data.total);
+});
+
+socket.on('diceRoundEnd', (data) => {
+  const result = data.results[socket.id];
+  
+  if (data.point !== null) {
+    diceState.point = data.point;
+    document.getElementById('dicePoint').style.display = 'block';
+    document.getElementById('dicePoint span').textContent = data.point;
+  } else {
+    diceState.point = null;
+    document.getElementById('dicePoint').style.display = 'none';
+  }
+  
+  let message = '';
+  if (result.result === 'win') {
+    message = `You win $${result.amount}!`;
+  } else if (result.result === 'lose') {
+    message = `You lose $${Math.abs(result.amount)}`;
+  }
+  
+  if (message) {
+    document.getElementById('diceResultText').textContent = message;
+    document.getElementById('diceResultText').className = result.result === 'win' ? 'win' : 'lose';
+    document.getElementById('diceResults').style.display = 'flex';
+  }
+});
+
+function renderDice() {
+  const diceEmojis = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+  document.getElementById('die1').textContent = diceEmojis[diceState.dice[0] - 1];
+  document.getElementById('die2').textContent = diceEmojis[diceState.dice[1] - 1];
+  document.getElementById('diceTotal').textContent = `Total: ${diceState.dice[0] + diceState.dice[1]}`;
+}
+
+function renderDiceRoll(dice, total) {
+  const diceEmojis = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+  const die1El = document.getElementById('die1');
+  const die2El = document.getElementById('die2');
+  
+  die1El.classList.add('rolling');
+  die2El.classList.add('rolling');
+  
+  let rollCount = 0;
+  const rollInterval = setInterval(() => {
+    die1El.textContent = diceEmojis[Math.floor(Math.random() * 6)];
+    die2El.textContent = diceEmojis[Math.floor(Math.random() * 6)];
+    rollCount++;
+    
+    if (rollCount > 10) {
+      clearInterval(rollInterval);
+      die1El.textContent = diceEmojis[dice[0] - 1];
+      die2El.textContent = diceEmojis[dice[1] - 1];
+      die1El.classList.remove('rolling');
+      die2El.classList.remove('rolling');
+      document.getElementById('diceTotal').textContent = `Total: ${total}`;
+    }
+  }, 100);
+}
+
+function updateDicePlayers(players) {
+  const container = document.getElementById('dicePlayers');
+  container.innerHTML = players.map(p => `
+    <div class="dice-player ${p.id === socket.id ? 'current' : ''}">
+      <span class="player-name">${p.username}</span>
+      <span class="player-chips">$${p.chips}</span>
+    </div>
+  `).join('');
+}
+
+// Dice bet buttons
+document.querySelectorAll('.dice-bet-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.dice-bet-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    diceState.currentBet = btn.dataset.bet;
+    document.getElementById('diceCurrentBet').textContent = btn.textContent;
+  });
+});
+
+// Dice chip buttons
+document.querySelectorAll('.dice-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!diceState.currentBet) {
+      alert('Select a bet type first!');
+      return;
+    }
+    
+    const amount = parseInt(btn.dataset.amount);
+    diceState.betAmount += amount;
+    
+    socket.emit('diceBet', {
+      betType: diceState.currentBet,
+      amount: amount,
+      number: null
+    });
+  });
+});
+
+document.getElementById('diceRollBtn').addEventListener('click', () => {
+  socket.emit('diceRoll');
+});
+
+document.getElementById('diceNewRound').addEventListener('click', () => {
+  document.getElementById('diceResults').style.display = 'none';
+  diceState.betAmount = 0;
+  diceState.currentBet = null;
+  document.querySelectorAll('.dice-bet-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('diceCurrentBet').textContent = 'None';
+});
+
 // ==================== SOLITAIRE ====================
 let solitaireState = {
   deck: [],
@@ -454,7 +751,6 @@ function initSolitaire() {
     }
   }
   
-  // Shuffle
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -471,7 +767,6 @@ function initSolitaire() {
     selectedPile: null
   };
   
-  // Deal to tableau
   for (let i = 0; i < 7; i++) {
     for (let j = i; j < 7; j++) {
       const card = solitaireState.deck.pop();
@@ -492,7 +787,6 @@ function updateSolitaireTimer() {
 }
 
 function renderSolitaire() {
-  // Render stock
   const stockDiv = document.getElementById('stock');
   stockDiv.innerHTML = '';
   if (solitaireState.deck.length > 0) {
@@ -503,7 +797,6 @@ function renderSolitaire() {
   }
   stockDiv.onclick = () => drawFromStock();
   
-  // Render waste
   const wasteDiv = document.getElementById('waste');
   wasteDiv.innerHTML = '';
   if (solitaireState.waste.length > 0) {
@@ -514,7 +807,6 @@ function renderSolitaire() {
     wasteDiv.appendChild(cardEl);
   }
   
-  // Render foundations
   for (let i = 0; i < 4; i++) {
     const foundDiv = document.getElementById(`foundation-${i}`);
     foundDiv.innerHTML = '';
@@ -527,7 +819,6 @@ function renderSolitaire() {
     foundDiv.onclick = () => selectPile(`foundation-${i}`, 0);
   }
   
-  // Render tableau
   for (let i = 0; i < 7; i++) {
     const tabDiv = document.getElementById(`tableau-${i}`);
     tabDiv.innerHTML = '';
@@ -560,7 +851,6 @@ function drawFromStock() {
 
 function selectPile(pileType, cardIndex) {
   if (solitaireState.selectedPile) {
-    // Try to move
     const source = solitaireState.selectedPile;
     const target = pileType;
     
@@ -579,7 +869,6 @@ function tryMove(source, target) {
   let sourceCards = [];
   let sourcePile = null;
   
-  // Get source cards
   if (source.type === 'waste') {
     sourceCards = [solitaireState.waste[source.index]];
     sourcePile = solitaireState.waste;
@@ -595,7 +884,6 @@ function tryMove(source, target) {
   
   if (sourceCards.length === 0) return false;
   
-  // Get target pile
   let targetPile = null;
   if (target === 'waste') return false;
   if (target.startsWith('foundation')) {

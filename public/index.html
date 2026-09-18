@@ -3,18 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Card Games - Blackjack, Poker, War & Solitaire</title>
+  <title>Casino Royale - Card & Table Games</title>
   <script src="/socket.io/socket.io.js"></script>
   <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+  <!-- Particles Background -->
+  <div class="particles" id="particles"></div>
+
   <!-- Main Menu -->
   <div id="mainMenu" class="screen active">
     <div class="menu-container">
       <div class="logo">
-        <div class="card-logo">♠♥♦♣</div>
-        <h1>Card Games</h1>
-        <p class="subtitle">Multiplayer Casino Games</p>
+        <div class="logo-icon">
+          <span class="suit-icon s1">♠</span>
+          <span class="suit-icon s2">♥</span>
+          <span class="suit-icon s3">♦</span>
+          <span class="suit-icon s4">♣</span>
+        </div>
+        <h1>Casino Royale</h1>
+        <p class="subtitle">♠ Card & Table Games ♣</p>
       </div>
       
       <div class="name-input">
@@ -27,14 +36,14 @@
           <div class="game-icon">🃏</div>
           <h3>Blackjack</h3>
           <p>Beat the dealer to 21!</p>
-          <span class="player-count">2-6 Players</span>
+          <span class="player-count">2-8 Players</span>
         </div>
         
         <div class="game-card" data-game="poker">
           <div class="game-icon">♠</div>
           <h3>Poker</h3>
           <p>5-Card Draw</p>
-          <span class="player-count">2-6 Players</span>
+          <span class="player-count">2-8 Players</span>
         </div>
         
         <div class="game-card" data-game="war">
@@ -42,6 +51,20 @@
           <h3>War</h3>
           <p>Higher card wins!</p>
           <span class="player-count">2 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="karera">
+          <div class="game-icon">🏇</div>
+          <h3>Karera</h3>
+          <p>Horse Racing Betting</p>
+          <span class="player-count">2-8 Players</span>
+        </div>
+        
+        <div class="game-card" data-game="dice">
+          <div class="game-icon">🎲</div>
+          <h3>Dice</h3>
+          <p>Roll & Win!</p>
+          <span class="player-count">2-8 Players</span>
         </div>
         
         <div class="game-card" data-game="solitaire">
@@ -53,10 +76,14 @@
       </div>
       
       <div class="room-actions">
-        <button id="createRoomBtn" class="btn btn-primary">Create Room</button>
+        <button id="createRoomBtn" class="btn btn-primary">
+          <span class="btn-icon">🎮</span> Create Room
+        </button>
         <div class="join-section">
           <input type="text" id="roomCode" placeholder="Room Code" maxlength="6">
-          <button id="joinRoomBtn" class="btn btn-secondary">Join</button>
+          <button id="joinRoomBtn" class="btn btn-secondary">
+            <span class="btn-icon">🚪</span> Join
+          </button>
         </div>
       </div>
     </div>
@@ -77,7 +104,9 @@
       </div>
       
       <div class="lobby-actions">
-        <button id="startGameBtn" class="btn btn-primary" style="display:none">Start Game</button>
+        <button id="startGameBtn" class="btn btn-primary" style="display:none">
+          <span class="btn-icon">🚀</span> Start Game
+        </button>
         <p id="waitingMsg" class="waiting-msg">Waiting for host to start...</p>
       </div>
     </div>
@@ -111,8 +140,8 @@
       </div>
       
       <div id="bjActions" class="game-actions">
-        <button id="hitBtn" class="btn btn-action">Hit</button>
-        <button id="standBtn" class="btn btn-action">Stand</button>
+        <button id="hitBtn" class="btn btn-action">🃏 Hit</button>
+        <button id="standBtn" class="btn btn-action btn-stand">✋ Stand</button>
       </div>
       
       <div id="bjResults" class="results-overlay" style="display:none">
@@ -150,9 +179,9 @@
       </div>
       
       <div id="pokerActions" class="game-actions">
-        <button id="pokerBetBtn" class="btn btn-action">Bet $50</button>
-        <button id="pokerFoldBtn" class="btn btn-action btn-danger">Fold</button>
-        <button id="pokerDrawBtn" class="btn btn-action" style="display:none">Draw Cards</button>
+        <button id="pokerBetBtn" class="btn btn-action">💰 Bet $50</button>
+        <button id="pokerFoldBtn" class="btn btn-action btn-danger">❌ Fold</button>
+        <button id="pokerDrawBtn" class="btn btn-action" style="display:none">🔄 Draw Cards</button>
       </div>
     </div>
   </div>
@@ -191,7 +220,117 @@
       </div>
       
       <div id="warActions" class="game-actions">
-        <button id="warPlayBtn" class="btn btn-action btn-large">Play Card</button>
+        <button id="warPlayBtn" class="btn btn-action btn-large">⚔️ Play Card</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Karera Game -->
+  <div id="kareraGame" class="screen">
+    <div class="game-container karera-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>🏇 Karera - Horse Racing</h2>
+        <div class="pot-display">Prize Pool: $<span id="kareraPot">0</span></div>
+      </div>
+      
+      <div class="karera-board">
+        <div class="karera-track">
+          <div class="finish-line">FINISH 🏁</div>
+          <div id="horseLanes" class="horse-lanes">
+            <!-- Horses will be rendered here -->
+          </div>
+          <div class="start-line">START</div>
+        </div>
+        
+        <div class="karera-betting">
+          <h3>Place Your Bets</h3>
+          <div id="horseOptions" class="horse-options">
+            <!-- Horse betting options -->
+          </div>
+          <div class="bet-amount-section">
+            <label>Bet Amount:</label>
+            <div class="bet-chips">
+              <button class="chip-btn" data-amount="10">$10</button>
+              <button class="chip-btn" data-amount="25">$25</button>
+              <button class="chip-btn" data-amount="50">$50</button>
+              <button class="chip-btn" data-amount="100">$100</button>
+            </div>
+            <div class="current-bet">Current Bet: $<span id="currentBet">0</span> on <span id="currentHorse">-</span></div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="kareraActions" class="game-actions">
+        <button id="kareraStartRaceBtn" class="btn btn-action btn-large">
+          🏁 Start Race!
+        </button>
+      </div>
+      
+      <div id="kareraResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="kareraResultText"></h2>
+          <div id="kareraWinnerInfo"></div>
+          <button id="kareraNewRace" class="btn btn-primary">New Race</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dice Game -->
+  <div id="diceGame" class="screen">
+    <div class="game-container dice-container">
+      <div class="game-header">
+        <button class="btn btn-back exit-game">← Exit</button>
+        <h2>🎲 Dice - Roll & Win</h2>
+        <div class="pot-display">Pot: $<span id="dicePot">0</span></div>
+      </div>
+      
+      <div class="dice-board">
+        <div class="dice-display">
+          <div id="die1" class="die">⚀</div>
+          <div id="die2" class="die">⚀</div>
+          <div id="diceTotal" class="dice-total">Total: -</div>
+          <div id="dicePoint" class="dice-point" style="display:none">Point: <span>0</span></div>
+        </div>
+        
+        <div class="dice-betting">
+          <h3>Place Your Bet</h3>
+          <div class="dice-bet-options">
+            <button class="dice-bet-btn" data-bet="pass">Pass Line</button>
+            <button class="dice-bet-btn" data-bet="dont_pass">Don't Pass</button>
+            <button class="dice-bet-btn" data-bet="field">Field</button>
+            <button class="dice-bet-btn" data-bet="any_seven">Any 7</button>
+            <button class="dice-bet-btn" data-bet="any_craps">Any Craps</button>
+          </div>
+          <div class="bet-amount-section">
+            <label>Bet Amount:</label>
+            <div class="bet-chips">
+              <button class="chip-btn dice-chip" data-amount="10">$10</button>
+              <button class="chip-btn dice-chip" data-amount="25">$25</button>
+              <button class="chip-btn dice-chip" data-amount="50">$50</button>
+              <button class="chip-btn dice-chip" data-amount="100">$100</button>
+            </div>
+            <div class="current-bet">Current Bet: <span id="diceCurrentBet">None</span></div>
+          </div>
+        </div>
+        
+        <div id="dicePlayers" class="dice-players">
+          <!-- Player list -->
+        </div>
+      </div>
+      
+      <div id="diceActions" class="game-actions">
+        <button id="diceRollBtn" class="btn btn-action btn-large">
+          🎲 Roll Dice!
+        </button>
+      </div>
+      
+      <div id="diceResults" class="results-overlay" style="display:none">
+        <div class="results-content">
+          <h2 id="diceResultText"></h2>
+          <button id="diceNewRound" class="btn btn-primary">New Round</button>
+        </div>
       </div>
     </div>
   </div>
@@ -235,7 +374,8 @@
 
   <!-- Win Overlay -->
   <div id="winOverlay" class="overlay" style="display:none">
-    <div class="overlay-content">
+    <div class="overlay-content win-overlay">
+      <div class="confetti" id="confetti"></div>
       <h2>🎉 You Win! 🎉</h2>
       <p id="winMessage"></p>
       <button id="playAgainBtn" class="btn btn-primary">Play Again</button>

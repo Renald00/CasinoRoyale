@@ -110,7 +110,7 @@ io.on('connection', (socket) => {
       return;
     }
     
-    if (room.players.length >= 6) {
+    if (room.players.length >= 8) {
       socket.emit('error', { message: 'Room is full' });
       return;
     }
@@ -141,6 +141,10 @@ io.on('connection', (socket) => {
       startPoker(room);
     } else if (room.gameType === 'war') {
       startWar(room);
+    } else if (room.gameType === 'karera') {
+      startKarera(room);
+    } else if (room.gameType === 'dice') {
+      startDice(room);
     }
   });
 
@@ -150,7 +154,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'blackjack') return;
-    
     handleBlackjackHit(room, socket.id);
   });
 
@@ -159,7 +162,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'blackjack') return;
-    
     handleBlackjackStand(room, socket.id);
   });
 
@@ -169,7 +171,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'poker') return;
-    
     handlePokerBet(room, socket.id, data.amount);
   });
 
@@ -178,7 +179,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'poker') return;
-    
     handlePokerFold(room, socket.id);
   });
 
@@ -187,7 +187,6 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'poker') return;
-    
     handlePokerDraw(room, socket.id, data.cards);
   });
 
@@ -197,8 +196,41 @@ io.on('connection', (socket) => {
     if (!player) return;
     const room = rooms[player.roomId];
     if (!room || room.gameType !== 'war') return;
-    
     handleWarPlay(room, socket.id);
+  });
+
+  // Karera events
+  socket.on('kareraBet', (data) => {
+    const player = players[socket.id];
+    if (!player) return;
+    const room = rooms[player.roomId];
+    if (!room || room.gameType !== 'karera') return;
+    handleKareraBet(room, socket.id, data.horse, data.amount);
+  });
+
+  socket.on('kareraStartRace', () => {
+    const player = players[socket.id];
+    if (!player) return;
+    const room = rooms[player.roomId];
+    if (!room || room.gameType !== 'karera') return;
+    handleKareraStartRace(room);
+  });
+
+  // Dice events
+  socket.on('diceBet', (data) => {
+    const player = players[socket.id];
+    if (!player) return;
+    const room = rooms[player.roomId];
+    if (!room || room.gameType !== 'dice') return;
+    handleDiceBet(room, socket.id, data.betType, data.amount, data.number);
+  });
+
+  socket.on('diceRoll', () => {
+    const player = players[socket.id];
+    if (!player) return;
+    const room = rooms[player.roomId];
+    if (!room || room.gameType !== 'dice') return;
+    handleDiceRoll(room, socket.id);
   });
 
   socket.on('disconnect', () => {
@@ -222,7 +254,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Blackjack logic
+// ==================== BLACKJACK ====================
 function startBlackjack(room) {
   const deck = createDeck();
   room.gameState = {
@@ -286,7 +318,6 @@ function checkBlackjackRound(room) {
   });
 
   if (allDone) {
-    // Dealer plays
     while (getHandValue(state.dealer.hand) < 17) {
       state.dealer.hand.push(state.deck.pop());
     }
@@ -319,7 +350,7 @@ function checkBlackjackRound(room) {
   }
 }
 
-// Poker logic
+// ==================== POKER ====================
 function startPoker(room) {
   const deck = createDeck();
   room.gameState = {
@@ -397,7 +428,6 @@ function handlePokerDraw(room, playerId, cardsToReplace) {
   });
   
   io.to(playerId).emit('pokerNewHand', { hand });
-  
   nextPokerTurn(room);
 }
 
@@ -431,7 +461,7 @@ function endPokerRound(room, winnerId) {
   });
 }
 
-// War logic
+// ==================== WAR ====================
 function startWar(room) {
   const deck = createDeck();
   const half = Math.floor(deck.length / 2);
@@ -461,17 +491,10 @@ function handleWarPlay(room, playerId) {
   const card = pile.pop();
   io.to(room.id).emit('warCardPlayed', { playerId, card });
   
-  // Check if all players have played
-  const playedCount = room.players.filter(p => {
-    const events = room.gameState.lastRound || [];
-    return events.some(e => e.playerId === p.id);
-  }).length;
-  
   if (!room.gameState.lastRound) room.gameState.lastRound = [];
   room.gameState.lastRound.push({ playerId, card });
   
   if (room.gameState.lastRound.length === room.players.length) {
-    // Determine winner
     const highest = Math.max(...room.gameState.lastRound.map(e => e.card.value));
     const winners = room.gameState.lastRound.filter(e => e.card.value === highest);
     
@@ -487,7 +510,6 @@ function handleWarPlay(room, playerId) {
     
     room.gameState.lastRound = [];
     
-    // Check game over
     const gameOver = room.players.some(p => state.piles[p.id].length === 0);
     if (gameOver) {
       const winner = room.players.reduce((a, b) => 
@@ -499,6 +521,250 @@ function handleWarPlay(room, playerId) {
       });
     }
   }
+}
+
+// ==================== KARERA (Horse Racing) ====================
+const HORSES = [
+  { id: 1, name: 'Thunder', emoji: '🐎', color: '#e74c3c' },
+  { id: 2, name: 'Lightning', emoji: '🐴', color: '#3498db' },
+  { id: 3, name: 'Storm', emoji: '🏇', color: '#2ecc71' },
+  { id: 4, name: 'Blaze', emoji: '🐎', color: '#f39c12' },
+  { id: 5, name: 'Shadow', emoji: '🐴', color: '#9b59b6' },
+  { id: 6, name: 'Spirit', emoji: '🏇', color: '#1abc9c' }
+];
+
+function startKarera(room) {
+  room.gameState = {
+    horses: HORSES.slice(0, 6),
+    positions: {},
+    bets: {},
+    raceStarted: false,
+    raceFinished: false,
+    winner: null,
+    raceInterval: null
+  };
+
+  HORSES.forEach(h => {
+    room.gameState.positions[h.id] = 0;
+  });
+
+  room.players.forEach(player => {
+    room.gameState.bets[player.id] = { horse: null, amount: 0 };
+  });
+
+  io.to(room.id).emit('kareraStart', {
+    horses: room.gameState.horses,
+    players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips }))
+  });
+}
+
+function handleKareraBet(room, playerId, horseId, amount) {
+  const state = room.gameState;
+  const player = room.players.find(p => p.id === playerId);
+  
+  if (!player || amount > player.chips || state.raceStarted) return;
+  
+  player.chips -= amount;
+  state.bets[playerId] = { horse: horseId, amount };
+  
+  io.to(room.id).emit('kareraBetMade', {
+    playerId,
+    horseId,
+    amount,
+    chips: player.chips
+  });
+}
+
+function handleKareraStartRace(room) {
+  const state = room.gameState;
+  
+  if (state.raceStarted) return;
+  
+  const hasBets = room.players.some(p => state.bets[p.id].horse !== null);
+  if (!hasBets) {
+    io.to(room.id).emit('kareraError', { message: 'Players must place bets first!' });
+    return;
+  }
+  
+  state.raceStarted = true;
+  io.to(room.id).emit('kareraRaceStarted');
+  
+  const finishLine = 100;
+  
+  state.raceInterval = setInterval(() => {
+    let finished = false;
+    
+    state.horses.forEach(horse => {
+      if (state.positions[horse.id] < finishLine) {
+        const move = Math.random() * 5 + 1;
+        state.positions[horse.id] = Math.min(state.positions[horse.id] + move, finishLine);
+        
+        if (state.positions[horse.id] >= finishLine && !finished) {
+          finished = true;
+          state.winner = horse.id;
+        }
+      }
+    });
+    
+    io.to(room.id).emit('kareraUpdate', { positions: state.positions });
+    
+    if (finished) {
+      clearInterval(state.raceInterval);
+      state.raceFinished = true;
+      
+      const results = {};
+      room.players.forEach(player => {
+        const bet = state.bets[player.id];
+        if (bet.horse === state.winner) {
+          const winnings = bet.amount * 5;
+          player.chips += winnings;
+          results[player.id] = { result: 'win', amount: winnings };
+        } else {
+          results[player.id] = { result: 'lose', amount: -bet.amount };
+        }
+      });
+      
+      const winnerHorse = state.horses.find(h => h.id === state.winner);
+      
+      io.to(room.id).emit('kareraRaceFinished', {
+        winner: state.winner,
+        winnerName: winnerHorse.name,
+        results
+      });
+    }
+  }, 100);
+}
+
+// ==================== DICE (Craps) ====================
+function startDice(room) {
+  room.gameState = {
+    bets: {},
+    phase: 'betting',
+    point: null,
+    dice: [0, 0],
+    roller: room.players[0].id
+  };
+
+  room.players.forEach(player => {
+    room.gameState.bets[player.id] = { type: null, amount: 0, number: null };
+  });
+
+  io.to(room.id).emit('diceStart', {
+    players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips }))
+  });
+}
+
+function handleDiceBet(room, playerId, betType, amount, number) {
+  const state = room.gameState;
+  const player = room.players.find(p => p.id === playerId);
+  
+  if (!player || amount > player.chips) return;
+  
+  player.chips -= amount;
+  state.bets[playerId] = { type: betType, amount, number };
+  
+  io.to(room.id).emit('diceBetMade', {
+    playerId,
+    betType,
+    amount,
+    number,
+    chips: player.chips
+  });
+}
+
+function handleDiceRoll(room, playerId) {
+  const state = room.gameState;
+  
+  if (playerId !== state.roller) return;
+  
+  const die1 = Math.floor(Math.random() * 6) + 1;
+  const die2 = Math.floor(Math.random() * 6) + 1;
+  const total = die1 + die2;
+  
+  state.dice = [die1, die2];
+  
+  io.to(room.id).emit('diceRolled', { dice: state.dice, total });
+  
+  const results = {};
+  
+  room.players.forEach(player => {
+    const bet = state.bets[player.id];
+    if (!bet.type) {
+      results[player.id] = { result: 'no_bet', amount: 0 };
+      return;
+    }
+    
+    let won = false;
+    let multiplier = 1;
+    
+    switch (bet.type) {
+      case 'pass':
+        if (state.point === null) {
+          won = total === 7 || total === 11;
+          if (!won && (total === 2 || total === 3 || total === 12)) {
+            won = false;
+          } else if (!won) {
+            state.point = total;
+          }
+        } else {
+          won = total === state.point;
+          if (total === 7) won = false;
+          if (won || total === 7) state.point = null;
+        }
+        multiplier = 2;
+        break;
+      case 'dont_pass':
+        if (state.point === null) {
+          won = total === 2 || total === 3;
+          if (total === 12) won = false;
+          if (!won && (total === 7 || total === 11)) {
+            won = false;
+          } else if (!won) {
+            state.point = total;
+          }
+        } else {
+          won = total === 7;
+          if (total === state.point) won = false;
+          if (won || total === state.point) state.point = null;
+        }
+        multiplier = 2;
+        break;
+      case 'field':
+        won = [2, 3, 4, 9, 10, 11, 12].includes(total);
+        multiplier = total === 2 || total === 12 ? 3 : 2;
+        break;
+      case 'any_seven':
+        won = total === 7;
+        multiplier = 5;
+        break;
+      case 'any_craps':
+        won = [2, 3, 12].includes(total);
+        multiplier = 8;
+        break;
+      case 'number':
+        won = total === bet.number;
+        multiplier = total === 2 || total === 12 ? 35 : total === 3 || total === 11 ? 18 : total === 4 || total === 10 ? 12 : total === 5 || total === 9 ? 9 : 7;
+        break;
+    }
+    
+    if (won) {
+      const winnings = bet.amount * multiplier;
+      player.chips += winnings;
+      results[player.id] = { result: 'win', amount: winnings };
+    } else {
+      results[player.id] = { result: 'lose', amount: -bet.amount };
+    }
+  });
+  
+  // Next roller
+  const currentIdx = room.players.findIndex(p => p.id === state.roller);
+  state.roller = room.players[(currentIdx + 1) % room.players.length].id;
+  
+  io.to(room.id).emit('diceRoundEnd', {
+    results,
+    point: state.point,
+    nextRoller: state.roller
+  });
 }
 
 server.listen(PORT, '0.0.0.0', () => {
