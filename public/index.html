@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BlockVerse - A Roblox-Inspired Game</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login/Avatar Screen -->
+  <div id="loginScreen" class="screen active">
+    <div class="login-container">
+      <div class="logo">
+        <div class="logo-block"></div>
+        <h1>BlockVerse</h1>
+      </div>
+      <div class="avatar-creator">
+        <h2>Create Your Avatar</h2>
+        <div class="avatar-preview">
+          <canvas id="avatarCanvas" width="200" height="200"></canvas>
+        </div>
+        <div class="avatar-options">
+          <div class="option-group">
+            <label>Username</label>
+            <input type="text" id="username" placeholder="Enter username" maxlength="15">
+          </div>
+          <div class="option-group">
+            <label>Character Color</label>
+            <div class="color-picker">
+              <div class="color-option selected" data-color="#4a90d9" style="background:#4a90d9"></div>
+              <div class="color-option" data-color="#e74c3c" style="background:#e74c3c"></div>
+              <div class="color-option" data-color="#2ecc71" style="background:#2ecc71"></div>
+              <div class="color-option" data-color="#f39c12" style="background:#f39c12"></div>
+              <div class="color-option" data-color="#9b59b6" style="background:#9b59b6"></div>
+              <div class="color-option" data-color="#1abc9c" style="background:#1abc9c"></div>
+              <div class="color-option" data-color="#e67e22" style="background:#e67e22"></div>
+              <div class="color-option" data-color="#ecf0f1" style="background:#ecf0f1"></div>
+            </div>
+          </div>
+          <div class="option-group">
+            <label>Hat</label>
+            <div class="hat-picker">
+              <div class="hat-option selected" data-hat="none">None</div>
+              <div class="hat-option" data-hat="crown">Crown</div>
+              <div class="hat-option" data-hat="cap">Cap</div>
+              <div class="hat-option" data-hat="tophat">Top Hat</div>
+            </div>
+          </div>
+          <button id="playBtn" class="play-btn">PLAY</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lobby/Game Selection Screen -->
+  <div id="lobbyScreen" class="screen">
+    <div class="lobby-header">
+      <div class="lobby-logo">
+        <div class="logo-block small"></div>
+        <h1>BlockVerse</h1>
+      </div>
+      <div class="lobby-user">
+        <span id="lobbyUsername"></span>
+        <div class="user-avatar" id="lobbyAvatar"></div>
+      </div>
+    </div>
+    <div class="games-grid">
+      <div class="game-card" data-game="obby-1">
+        <div class="game-preview obby-preview"></div>
+        <div class="game-info">
+          <h3>Obby Challenge</h3>
+          <p>Test your parkour skills!</p>
+          <span class="player-count" id="obby-players">0 Playing</span>
+        </div>
+      </div>
+      <div class="game-card" data-game="build-1">
+        <div class="game-preview build-preview"></div>
+        <div class="game-info">
+          <h3>Free Build</h3>
+          <p>Create anything you imagine!</p>
+          <span class="player-count" id="build-players">0 Playing</span>
+        </div>
+      </div>
+      <div class="game-card" data-game="racing-1">
+        <div class="game-preview racing-preview"></div>
+        <div class="game-info">
+          <h3>Speed Race</h3>
+          <p>Race to the finish line!</p>
+          <span class="player-count" id="racing-players">0 Playing</span>
+        </div>
+      </div>
+      <div class="game-card" data-game="survival-1">
+        <div class="game-preview survival-preview"></div>
+        <div class="game-info">
+          <h3>Survival Island</h3>
+          <p>Explore and survive!</p>
+          <span class="player-count" id="survival-players">0 Playing</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="screen">
+    <div id="gameUI">
+      <div class="game-header">
+        <button id="backToLobby" class="back-btn">← Lobby</button>
+        <div class="game-title" id="currentGameTitle">Obby Challenge</div>
+        <div class="player-count-header">
+          <span id="onlineCount">0</span> Online
+        </div>
+      </div>
+      <div class="hotbar">
+        <div class="hotbar-slot selected" data-slot="0">
+          <div class="slot-icon" style="background:#8B4513"></div>
+          <span>1</span>
+        </div>
+        <div class="hotbar-slot" data-slot="1">
+          <div class="slot-icon" style="background:#808080"></div>
+          <span>2</span>
+        </div>
+        <div class="hotbar-slot" data-slot="2">
+          <div class="slot-icon" style="background:#228B22"></div>
+          <span>3</span>
+        </div>
+        <div class="hotbar-slot" data-slot="3">
+          <div class="slot-icon" style="background:#DC143C"></div>
+          <span>4</span>
+        </div>
+        <div class="hotbar-slot" data-slot="4">
+          <div class="slot-icon" style="background:#FFD700"></div>
+          <span>5</span>
+        </div>
+        <div class="hotbar-slot" data-slot="5">
+          <div class="slot-icon" style="background:#4169E1"></div>
+          <span>6</span>
+        </div>
+        <div class="hotbar-slot" data-slot="6">
+          <div class="slot-icon" style="background:#FF69B4"></div>
+          <span>7</span>
+        </div>
+        <div class="hotbar-slot" data-slot="7">
+          <div class="slot-icon" style="background:#87CEEB"></div>
+          <span>8</span>
+        </div>
+      </div>
+      <div class="chat-container">
+        <div id="chatMessages" class="chat-messages"></div>
+        <input type="text" id="chatInput" placeholder="Press Enter to chat..." maxlength="100">
+      </div>
+      <div class="crosshair">+</div>
+      <div class="score-display">
+        <span>Score: </span><span id="scoreValue">0</span>
+      </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
