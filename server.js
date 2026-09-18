@@ -5,15 +5,30 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
 
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 
-// Card game utilities
+// ==================== GAME UTILITIES ====================
 const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+const HORSES = [
+  { id: 1, name: 'Thunder', emoji: '🐎', color: '#e74c3c', odds: 5 },
+  { id: 2, name: 'Lightning', emoji: '🐴', color: '#3498db', odds: 5 },
+  { id: 3, name: 'Storm', emoji: '🏇', color: '#2ecc71', odds: 5 },
+  { id: 4, name: 'Blaze', emoji: '🐎', color: '#f39c12', odds: 5 },
+  { id: 5, name: 'Shadow', emoji: '🐴', color: '#9b59b6', odds: 5 },
+  { id: 6, name: 'Spirit', emoji: '🏇', color: '#1abc9c', odds: 5 }
+];
 
 function createDeck() {
   const deck = [];
@@ -76,183 +91,418 @@ function evaluatePokerHand(hand) {
   return { rank: 1, name: 'High Card', highCard: Math.max(...ranks) };
 }
 
-// Game rooms
-const rooms = {};
-const players = {};
+function generateRoomId() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+// ==================== GAME STATE ====================
+const rooms = new Map();
+const players = new Map();
+const chatMessages = new Map();
+
+// Room cleanup interval (remove inactive rooms after 30 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [roomId, room] of rooms) {
+    if (now - room.lastActivity > 30 * 60 * 1000) {
+      rooms.delete(roomId);
+      chatMessages.delete(roomId);
+      console.log(`Cleaned up inactive room: ${roomId}`);
+    }
+  }
+}, 60000);
+
+// ==================== REST API ENDPOINTS ====================
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get all available games
+app.get('/api/games', (req, res) => {
+  res.json({
+    games: [
+      { id: 'blackjack', name: 'Blackjack', minPlayers: 1, maxPlayers: 8, description: 'Beat the dealer to 21!' },
+      { id: 'poker', name: 'Poker', minPlayers: 2, maxPlayers: 8, description: '5-Card Draw' },
+      { id: 'war', name: 'War', minPlayers: 2, maxPlayers: 2, description: 'Higher card wins!' },
+      { id: 'karera', name: 'Karera', minPlayers: 1, maxPlayers: 8, description: 'Horse Racing Betting' },
+      { id: 'dice', name: 'Dice', minPlayers: 1, maxPlayers: 8, description: 'Roll & Win!' },
+      { id: 'solitaire', name: 'Solitaire', minPlayers: 1, maxPlayers: 1, description: 'Classic Klondike' }
+    ]
+  });
+});
+
+// Get all active rooms
+app.get('/api/rooms', (req, res) => {
+  const roomList = [];
+  for (const [roomId, room] of rooms) {
+    roomList.push({
+      id: roomId,
+      gameType: room.gameType,
+      playerCount: room.players.length,
+      maxPlayers: 8,
+      status: room.status,
+      host: room.players.find(p => p.id === room.host)?.username || 'Unknown'
+    });
+  }
+  res.json({ rooms: roomList });
+});
+
+// Get specific room info
+app.get('/api/rooms/:roomId', (req, res) => {
+  const room = rooms.get(req.params.roomId.toUpperCase());
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+  
+  res.json({
+    id: room.id,
+    gameType: room.gameType,
+    players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips })),
+    status: room.status,
+    host: room.host
+  });
+});
+
+// Get server stats
+app.get('/api/stats', (req, res) => {
+  res.json({
+    activeRooms: rooms.size,
+    activePlayers: players.size,
+    totalChips: Array.from(rooms.values()).reduce((sum, room) => 
+      sum + room.players.reduce((s, p) => s + p.chips, 0), 0
+    )
+  });
+});
+
+// ==================== SOCKET.IO EVENTS ====================
 
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
 
+  // Room Management
   socket.on('createRoom', (data) => {
-    const { username, gameType } = data;
-    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    rooms[roomId] = {
-      id: roomId,
-      gameType,
-      host: socket.id,
-      players: [{ id: socket.id, username, chips: 1000 }],
-      gameState: null,
-      status: 'waiting'
-    };
+    try {
+      const { username, gameType } = data;
+      
+      if (!username || !gameType) {
+        socket.emit('error', { message: 'Username and game type are required' });
+        return;
+      }
 
-    players[socket.id] = { roomId, username };
-    socket.join(roomId);
-    socket.emit('roomCreated', { roomId, room: rooms[roomId] });
+      const validGames = ['blackjack', 'poker', 'war', 'karera', 'dice'];
+      if (!validGames.includes(gameType)) {
+        socket.emit('error', { message: 'Invalid game type' });
+        return;
+      }
+
+      const roomId = generateRoomId();
+      const room = {
+        id: roomId,
+        gameType,
+        host: socket.id,
+        players: [{ id: socket.id, username, chips: 1000 }],
+        gameState: null,
+        status: 'waiting',
+        createdAt: Date.now(),
+        lastActivity: Date.now()
+      };
+
+      rooms.set(roomId, room);
+      players.set(socket.id, { roomId, username });
+      chatMessages.set(roomId, []);
+      
+      socket.join(roomId);
+      socket.emit('roomCreated', { roomId, room: sanitizeRoom(room) });
+      
+      console.log(`Room ${roomId} created by ${username} for ${gameType}`);
+    } catch (error) {
+      console.error('Error creating room:', error);
+      socket.emit('error', { message: 'Failed to create room' });
+    }
   });
 
   socket.on('joinRoom', (data) => {
-    const { username, roomId } = data;
-    const room = rooms[roomId];
-    
-    if (!room) {
-      socket.emit('error', { message: 'Room not found' });
-      return;
-    }
-    
-    if (room.players.length >= 8) {
-      socket.emit('error', { message: 'Room is full' });
-      return;
-    }
+    try {
+      const { username, roomId } = data;
+      
+      if (!username || !roomId) {
+        socket.emit('error', { message: 'Username and room ID are required' });
+        return;
+      }
 
-    room.players.push({ id: socket.id, username, chips: 1000 });
-    players[socket.id] = { roomId, username };
-    socket.join(roomId);
-    
-    io.to(roomId).emit('playerJoined', { 
-      player: { id: socket.id, username },
-      players: room.players 
-    });
-    socket.emit('roomJoined', { roomId, room: room });
+      const room = rooms.get(roomId.toUpperCase());
+      
+      if (!room) {
+        socket.emit('error', { message: 'Room not found' });
+        return;
+      }
+      
+      if (room.players.length >= 8) {
+        socket.emit('error', { message: 'Room is full (max 8 players)' });
+        return;
+      }
+
+      if (room.status !== 'waiting') {
+        socket.emit('error', { message: 'Game already in progress' });
+        return;
+      }
+
+      const existingPlayer = room.players.find(p => p.username === username);
+      if (existingPlayer) {
+        socket.emit('error', { message: 'Username already taken in this room' });
+        return;
+      }
+
+      room.players.push({ id: socket.id, username, chips: 1000 });
+      room.lastActivity = Date.now();
+      players.set(socket.id, { roomId: room.id, username });
+      
+      socket.join(room.id);
+      
+      io.to(room.id).emit('playerJoined', { 
+        player: { id: socket.id, username },
+        players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips }))
+      });
+      
+      socket.emit('roomJoined', { roomId: room.id, room: sanitizeRoom(room) });
+      
+      // Send chat history
+      const history = chatMessages.get(room.id) || [];
+      socket.emit('chatHistory', { messages: history.slice(-50) });
+      
+      console.log(`${username} joined room ${room.id}`);
+    } catch (error) {
+      console.error('Error joining room:', error);
+      socket.emit('error', { message: 'Failed to join room' });
+    }
   });
 
   socket.on('startGame', () => {
-    const player = players[socket.id];
-    if (!player) return;
-    
-    const room = rooms[player.roomId];
-    if (!room || room.host !== socket.id) return;
+    try {
+      const player = players.get(socket.id);
+      if (!player) return;
+      
+      const room = rooms.get(player.roomId);
+      if (!room || room.host !== socket.id) {
+        socket.emit('error', { message: 'Only the host can start the game' });
+        return;
+      }
 
-    room.status = 'playing';
-    
-    if (room.gameType === 'blackjack') {
-      startBlackjack(room);
-    } else if (room.gameType === 'poker') {
-      startPoker(room);
-    } else if (room.gameType === 'war') {
-      startWar(room);
-    } else if (room.gameType === 'karera') {
-      startKarera(room);
-    } else if (room.gameType === 'dice') {
-      startDice(room);
+      if (room.players.length < 1) {
+        socket.emit('error', { message: 'Need at least 1 player to start' });
+        return;
+      }
+
+      room.status = 'playing';
+      room.lastActivity = Date.now();
+      
+      const gameStarters = {
+        blackjack: startBlackjack,
+        poker: startPoker,
+        war: startWar,
+        karera: startKarera,
+        dice: startDice
+      };
+
+      const starter = gameStarters[room.gameType];
+      if (starter) {
+        starter(room);
+        console.log(`Game started in room ${room.id}: ${room.gameType}`);
+      }
+    } catch (error) {
+      console.error('Error starting game:', error);
+      socket.emit('error', { message: 'Failed to start game' });
     }
   });
 
-  // Blackjack events
+  // Chat
+  socket.on('chatMessage', (message) => {
+    try {
+      const player = players.get(socket.id);
+      if (!player) return;
+
+      const room = rooms.get(player.roomId);
+      if (!room) return;
+
+      const chatMsg = {
+        id: Date.now().toString(),
+        userId: socket.id,
+        username: player.username,
+        message: message.substring(0, 500), // Limit message length
+        timestamp: new Date().toISOString()
+      };
+
+      const history = chatMessages.get(room.id) || [];
+      history.push(chatMsg);
+      if (history.length > 100) history.shift(); // Keep last 100 messages
+      chatMessages.set(room.id, history);
+
+      io.to(room.id).emit('chatMessage', chatMsg);
+    } catch (error) {
+      console.error('Error sending chat message:', error);
+    }
+  });
+
+  // Blackjack Events
   socket.on('blackjackHit', () => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'blackjack') return;
     handleBlackjackHit(room, socket.id);
   });
 
   socket.on('blackjackStand', () => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'blackjack') return;
     handleBlackjackStand(room, socket.id);
   });
 
-  // Poker events
-  socket.on('pokerBet', (data) => {
-    const player = players[socket.id];
+  socket.on('blackjackDouble', () => {
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
+    if (!room || room.gameType !== 'blackjack') return;
+    handleBlackjackDouble(room, socket.id);
+  });
+
+  // Poker Events
+  socket.on('pokerBet', (data) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'poker') return;
     handlePokerBet(room, socket.id, data.amount);
   });
 
-  socket.on('pokerFold', () => {
-    const player = players[socket.id];
+  socket.on('pokerCheck', () => {
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
+    if (!room || room.gameType !== 'poker') return;
+    handlePokerCheck(room, socket.id);
+  });
+
+  socket.on('pokerFold', () => {
+    const player = players.get(socket.id);
+    if (!player) return;
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'poker') return;
     handlePokerFold(room, socket.id);
   });
 
   socket.on('pokerDraw', (data) => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'poker') return;
     handlePokerDraw(room, socket.id, data.cards);
   });
 
-  // War events
+  // War Events
   socket.on('warPlay', () => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'war') return;
     handleWarPlay(room, socket.id);
   });
 
-  // Karera events
+  // Karera Events
   socket.on('kareraBet', (data) => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'karera') return;
     handleKareraBet(room, socket.id, data.horse, data.amount);
   });
 
   socket.on('kareraStartRace', () => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'karera') return;
     handleKareraStartRace(room);
   });
 
-  // Dice events
+  // Dice Events
   socket.on('diceBet', (data) => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'dice') return;
     handleDiceBet(room, socket.id, data.betType, data.amount, data.number);
   });
 
   socket.on('diceRoll', () => {
-    const player = players[socket.id];
+    const player = players.get(socket.id);
     if (!player) return;
-    const room = rooms[player.roomId];
+    const room = rooms.get(player.roomId);
     if (!room || room.gameType !== 'dice') return;
     handleDiceRoll(room, socket.id);
   });
 
+  // Leave Room
+  socket.on('leaveRoom', () => {
+    handlePlayerLeave(socket);
+  });
+
+  // Disconnect
   socket.on('disconnect', () => {
-    const player = players[socket.id];
-    if (player) {
-      const room = rooms[player.roomId];
-      if (room) {
-        room.players = room.players.filter(p => p.id !== socket.id);
-        if (room.players.length === 0) {
-          delete rooms[player.roomId];
-        } else {
-          io.to(player.roomId).emit('playerLeft', { 
-            playerId: socket.id,
-            players: room.players 
-          });
-        }
-      }
-      delete players[socket.id];
-    }
+    handlePlayerLeave(socket);
     console.log('Player disconnected:', socket.id);
   });
 });
+
+function handlePlayerLeave(socket) {
+  const player = players.get(socket.id);
+  if (!player) return;
+
+  const room = rooms.get(player.roomId);
+  if (room) {
+    room.players = room.players.filter(p => p.id !== socket.id);
+    room.lastActivity = Date.now();
+
+    if (room.players.length === 0) {
+      if (room.gameState?.raceInterval) {
+        clearInterval(room.gameState.raceInterval);
+      }
+      rooms.delete(player.roomId);
+      chatMessages.delete(player.roomId);
+      console.log(`Room ${player.roomId} deleted (empty)`);
+    } else {
+      if (room.host === socket.id) {
+        room.host = room.players[0].id;
+        io.to(room.id).emit('newHost', { hostId: room.host });
+      }
+      io.to(room.id).emit('playerLeft', { 
+        playerId: socket.id,
+        players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips }))
+      });
+    }
+  }
+
+  players.delete(socket.id);
+}
+
+function sanitizeRoom(room) {
+  return {
+    id: room.id,
+    gameType: room.gameType,
+    host: room.host,
+    players: room.players.map(p => ({ id: p.id, username: p.username, chips: p.chips })),
+    status: room.status
+  };
+}
 
 // ==================== BLACKJACK ====================
 function startBlackjack(room) {
@@ -261,7 +511,7 @@ function startBlackjack(room) {
     deck,
     dealer: { hand: [], hidden: true },
     players: {},
-    currentPlayer: 0
+    currentBet: 50
   };
 
   room.players.forEach(player => {
@@ -269,7 +519,8 @@ function startBlackjack(room) {
       hand: [deck.pop(), deck.pop()],
       stand: false,
       bust: false,
-      bet: 10
+      bet: room.gameState.currentBet,
+      doubled: false
     };
   });
 
@@ -296,6 +547,9 @@ function handleBlackjackHit(room, playerId) {
   if (value > 21) {
     playerHand.bust = true;
     io.to(playerId).emit('blackjackBust', { hand: playerHand.hand, value });
+  } else if (value === 21) {
+    playerHand.stand = true;
+    io.to(playerId).emit('blackjack21', { hand: playerHand.hand, value });
   } else {
     io.to(playerId).emit('blackjackUpdate', { hand: playerHand.hand, value });
   }
@@ -305,8 +559,36 @@ function handleBlackjackHit(room, playerId) {
 
 function handleBlackjackStand(room, playerId) {
   const state = room.gameState;
+  if (!state.players[playerId]) return;
+  
   state.players[playerId].stand = true;
   io.to(playerId).emit('blackjackStood');
+  checkBlackjackRound(room);
+}
+
+function handleBlackjackDouble(room, playerId) {
+  const state = room.gameState;
+  const playerHand = state.players[playerId];
+  const player = room.players.find(p => p.id === playerId);
+  
+  if (!playerHand || playerHand.stand || playerHand.bust || playerHand.hand.length !== 2) return;
+  if (!player || player.chips < playerHand.bet) return;
+  
+  player.chips -= playerHand.bet;
+  playerHand.bet *= 2;
+  playerHand.doubled = true;
+  
+  playerHand.hand.push(state.deck.pop());
+  const value = getHandValue(playerHand.hand);
+  
+  if (value > 21) {
+    playerHand.bust = true;
+    io.to(playerId).emit('blackjackBust', { hand: playerHand.hand, value });
+  } else {
+    playerHand.stand = true;
+    io.to(playerId).emit('blackjackUpdate', { hand: playerHand.hand, value });
+  }
+  
   checkBlackjackRound(room);
 }
 
@@ -318,6 +600,7 @@ function checkBlackjackRound(room) {
   });
 
   if (allDone) {
+    // Dealer plays
     while (getHandValue(state.dealer.hand) < 17) {
       state.dealer.hand.push(state.deck.pop());
     }
@@ -333,12 +616,15 @@ function checkBlackjackRound(room) {
         results[player.id] = { result: 'lose', amount: -playerState.bet };
       } else if (dealerValue > 21) {
         results[player.id] = { result: 'win', amount: playerState.bet };
+        player.chips += playerState.bet * 2;
       } else if (playerValue > dealerValue) {
         results[player.id] = { result: 'win', amount: playerState.bet };
+        player.chips += playerState.bet * 2;
       } else if (playerValue < dealerValue) {
         results[player.id] = { result: 'lose', amount: -playerState.bet };
       } else {
         results[player.id] = { result: 'push', amount: 0 };
+        player.chips += playerState.bet;
       }
     });
 
@@ -347,6 +633,8 @@ function checkBlackjackRound(room) {
       dealerValue,
       results
     });
+    
+    room.status = 'waiting';
   }
 }
 
@@ -360,7 +648,8 @@ function startPoker(room) {
     currentBet: 0,
     currentPlayer: 0,
     phase: 'betting',
-    bets: {}
+    bets: {},
+    folded: new Set()
   };
 
   room.players.forEach(player => {
@@ -384,7 +673,7 @@ function handlePokerBet(room, playerId, amount) {
   const state = room.gameState;
   const player = room.players.find(p => p.id === playerId);
   
-  if (!player || amount > player.chips) return;
+  if (!player || amount > player.chips || state.folded.has(playerId)) return;
   
   player.chips -= amount;
   state.pot += amount;
@@ -401,8 +690,17 @@ function handlePokerBet(room, playerId, amount) {
   nextPokerTurn(room);
 }
 
+function handlePokerCheck(room, playerId) {
+  const state = room.gameState;
+  if (state.folded.has(playerId)) return;
+  
+  io.to(room.id).emit('pokerCheck', { playerId });
+  nextPokerTurn(room);
+}
+
 function handlePokerFold(room, playerId) {
   const state = room.gameState;
+  state.folded.add(playerId);
   delete state.hands[playerId];
   
   io.to(room.id).emit('pokerFold', { playerId });
@@ -419,7 +717,7 @@ function handlePokerDraw(room, playerId, cardsToReplace) {
   const state = room.gameState;
   const hand = state.hands[playerId];
   
-  if (!hand) return;
+  if (!hand || state.folded.has(playerId)) return;
   
   cardsToReplace.forEach(index => {
     if (index >= 0 && index < 5) {
@@ -434,10 +732,14 @@ function handlePokerDraw(room, playerId, cardsToReplace) {
 function nextPokerTurn(room) {
   const state = room.gameState;
   const playerIds = Object.keys(state.hands);
-  state.currentPlayer = (state.currentPlayer + 1) % playerIds.length;
   
-  const nextPlayerId = playerIds[state.currentPlayer];
-  io.to(nextPlayerId).emit('yourTurn');
+  let nextIdx = (state.currentPlayer + 1) % playerIds.length;
+  while (state.folded.has(playerIds[nextIdx])) {
+    nextIdx = (nextIdx + 1) % playerIds.length;
+  }
+  
+  state.currentPlayer = nextIdx;
+  io.to(playerIds[nextIdx]).emit('yourTurn');
 }
 
 function endPokerRound(room, winnerId) {
@@ -459,6 +761,8 @@ function endPokerRound(room, winnerId) {
     hands: state.hands,
     handRanks
   });
+  
+  room.status = 'waiting';
 }
 
 // ==================== WAR ====================
@@ -468,7 +772,8 @@ function startWar(room) {
   
   room.gameState = {
     piles: {},
-    scores: {}
+    scores: {},
+    lastRound: []
   };
 
   room.players.forEach((player, index) => {
@@ -491,12 +796,11 @@ function handleWarPlay(room, playerId) {
   const card = pile.pop();
   io.to(room.id).emit('warCardPlayed', { playerId, card });
   
-  if (!room.gameState.lastRound) room.gameState.lastRound = [];
-  room.gameState.lastRound.push({ playerId, card });
+  state.lastRound.push({ playerId, card });
   
-  if (room.gameState.lastRound.length === room.players.length) {
-    const highest = Math.max(...room.gameState.lastRound.map(e => e.card.value));
-    const winners = room.gameState.lastRound.filter(e => e.card.value === highest);
+  if (state.lastRound.length === room.players.length) {
+    const highest = Math.max(...state.lastRound.map(e => e.card.value));
+    const winners = state.lastRound.filter(e => e.card.value === highest);
     
     if (winners.length === 1) {
       state.scores[winners[0].playerId]++;
@@ -508,7 +812,7 @@ function handleWarPlay(room, playerId) {
       io.to(room.id).emit('warTie', { scores: state.scores });
     }
     
-    room.gameState.lastRound = [];
+    state.lastRound = [];
     
     const gameOver = room.players.some(p => state.piles[p.id].length === 0);
     if (gameOver) {
@@ -519,20 +823,12 @@ function handleWarPlay(room, playerId) {
         winnerId: winner.id,
         scores: state.scores
       });
+      room.status = 'waiting';
     }
   }
 }
 
-// ==================== KARERA (Horse Racing) ====================
-const HORSES = [
-  { id: 1, name: 'Thunder', emoji: '🐎', color: '#e74c3c' },
-  { id: 2, name: 'Lightning', emoji: '🐴', color: '#3498db' },
-  { id: 3, name: 'Storm', emoji: '🏇', color: '#2ecc71' },
-  { id: 4, name: 'Blaze', emoji: '🐎', color: '#f39c12' },
-  { id: 5, name: 'Shadow', emoji: '🐴', color: '#9b59b6' },
-  { id: 6, name: 'Spirit', emoji: '🏇', color: '#1abc9c' }
-];
-
+// ==================== KARERA ====================
 function startKarera(room) {
   room.gameState = {
     horses: HORSES.slice(0, 6),
@@ -563,14 +859,16 @@ function handleKareraBet(room, playerId, horseId, amount) {
   const player = room.players.find(p => p.id === playerId);
   
   if (!player || amount > player.chips || state.raceStarted) return;
+  if (!HORSES.find(h => h.id === horseId)) return;
   
   player.chips -= amount;
-  state.bets[playerId] = { horse: horseId, amount };
+  state.bets[playerId] = { horse: horseId, amount: (state.bets[playerId]?.amount || 0) + amount };
   
   io.to(room.id).emit('kareraBetMade', {
     playerId,
     horseId,
     amount,
+    totalBet: state.bets[playerId].amount,
     chips: player.chips
   });
 }
@@ -580,7 +878,7 @@ function handleKareraStartRace(room) {
   
   if (state.raceStarted) return;
   
-  const hasBets = room.players.some(p => state.bets[p.id].horse !== null);
+  const hasBets = room.players.some(p => state.bets[p.id]?.horse !== null);
   if (!hasBets) {
     io.to(room.id).emit('kareraError', { message: 'Players must place bets first!' });
     return;
@@ -606,7 +904,7 @@ function handleKareraStartRace(room) {
       }
     });
     
-    io.to(room.id).emit('kareraUpdate', { positions: state.positions });
+    io.to(room.id).emit('kareraUpdate', { positions: { ...state.positions } });
     
     if (finished) {
       clearInterval(state.raceInterval);
@@ -616,11 +914,11 @@ function handleKareraStartRace(room) {
       room.players.forEach(player => {
         const bet = state.bets[player.id];
         if (bet.horse === state.winner) {
-          const winnings = bet.amount * 5;
+          const winnings = bet.amount * HORSES.find(h => h.id === state.winner).odds;
           player.chips += winnings;
-          results[player.id] = { result: 'win', amount: winnings };
+          results[player.id] = { result: 'win', amount: winnings, horse: bet.horse };
         } else {
-          results[player.id] = { result: 'lose', amount: -bet.amount };
+          results[player.id] = { result: 'lose', amount: -bet.amount, horse: bet.horse };
         }
       });
       
@@ -629,20 +927,24 @@ function handleKareraStartRace(room) {
       io.to(room.id).emit('kareraRaceFinished', {
         winner: state.winner,
         winnerName: winnerHorse.name,
+        winnerEmoji: winnerHorse.emoji,
         results
       });
+      
+      room.status = 'waiting';
     }
   }, 100);
 }
 
-// ==================== DICE (Craps) ====================
+// ==================== DICE ====================
 function startDice(room) {
   room.gameState = {
     bets: {},
     phase: 'betting',
     point: null,
     dice: [0, 0],
-    roller: room.players[0].id
+    roller: room.players[0].id,
+    round: 0
   };
 
   room.players.forEach(player => {
@@ -660,14 +962,18 @@ function handleDiceBet(room, playerId, betType, amount, number) {
   
   if (!player || amount > player.chips) return;
   
+  const validBets = ['pass', 'dont_pass', 'field', 'any_seven', 'any_craps', 'number'];
+  if (!validBets.includes(betType)) return;
+  
   player.chips -= amount;
-  state.bets[playerId] = { type: betType, amount, number };
+  state.bets[playerId] = { type: betType, amount: (state.bets[playerId]?.amount || 0) + amount, number };
   
   io.to(room.id).emit('diceBetMade', {
     playerId,
     betType,
     amount,
     number,
+    totalBet: state.bets[playerId].amount,
     chips: player.chips
   });
 }
@@ -682,14 +988,15 @@ function handleDiceRoll(room, playerId) {
   const total = die1 + die2;
   
   state.dice = [die1, die2];
+  state.round++;
   
-  io.to(room.id).emit('diceRolled', { dice: state.dice, total });
+  io.to(room.id).emit('diceRolled', { dice: state.dice, total, roller: playerId });
   
   const results = {};
   
   room.players.forEach(player => {
     const bet = state.bets[player.id];
-    if (!bet.type) {
+    if (!bet.type || bet.amount === 0) {
       results[player.id] = { result: 'no_bet', amount: 0 };
       return;
     }
@@ -700,32 +1007,44 @@ function handleDiceRoll(room, playerId) {
     switch (bet.type) {
       case 'pass':
         if (state.point === null) {
-          won = total === 7 || total === 11;
-          if (!won && (total === 2 || total === 3 || total === 12)) {
+          if (total === 7 || total === 11) {
+            won = true;
+          } else if (total === 2 || total === 3 || total === 12) {
             won = false;
-          } else if (!won) {
+          } else {
             state.point = total;
+            won = false;
           }
         } else {
-          won = total === state.point;
-          if (total === 7) won = false;
-          if (won || total === 7) state.point = null;
+          if (total === state.point) {
+            won = true;
+            state.point = null;
+          } else if (total === 7) {
+            won = false;
+            state.point = null;
+          }
         }
         multiplier = 2;
         break;
       case 'dont_pass':
         if (state.point === null) {
-          won = total === 2 || total === 3;
-          if (total === 12) won = false;
-          if (!won && (total === 7 || total === 11)) {
+          if (total === 2 || total === 3) {
+            won = true;
+          } else if (total === 12) {
             won = false;
-          } else if (!won) {
+          } else if (total === 7 || total === 11) {
+            won = false;
+          } else {
             state.point = total;
           }
         } else {
-          won = total === 7;
-          if (total === state.point) won = false;
-          if (won || total === state.point) state.point = null;
+          if (total === 7) {
+            won = true;
+            state.point = null;
+          } else if (total === state.point) {
+            won = false;
+            state.point = null;
+          }
         }
         multiplier = 2;
         break;
@@ -742,18 +1061,26 @@ function handleDiceRoll(room, playerId) {
         multiplier = 8;
         break;
       case 'number':
-        won = total === bet.number;
-        multiplier = total === 2 || total === 12 ? 35 : total === 3 || total === 11 ? 18 : total === 4 || total === 10 ? 12 : total === 5 || total === 9 ? 9 : 7;
+        if (bet.number >= 2 && bet.number <= 12) {
+          won = total === bet.number;
+          const numberOdds = { 2: 35, 3: 18, 4: 12, 5: 9, 6: 7, 8: 7, 9: 9, 10: 12, 11: 18, 12: 35 };
+          multiplier = numberOdds[bet.number] || 7;
+        }
         break;
     }
     
     if (won) {
       const winnings = bet.amount * multiplier;
       player.chips += winnings;
-      results[player.id] = { result: 'win', amount: winnings };
+      results[player.id] = { result: 'win', amount: winnings, multiplier };
     } else {
       results[player.id] = { result: 'lose', amount: -bet.amount };
     }
+  });
+  
+  // Reset bets for next round
+  room.players.forEach(player => {
+    state.bets[player.id] = { type: null, amount: 0, number: null };
   });
   
   // Next roller
@@ -763,10 +1090,13 @@ function handleDiceRoll(room, playerId) {
   io.to(room.id).emit('diceRoundEnd', {
     results,
     point: state.point,
-    nextRoller: state.roller
+    nextRoller: state.roller,
+    round: state.round
   });
 }
 
+// ==================== SERVER START ====================
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Card Games server running on port ${PORT}`);
+  console.log(`Casino Royale server running on port ${PORT}`);
+  console.log(`API available at http://localhost:${PORT}/api`);
 });
